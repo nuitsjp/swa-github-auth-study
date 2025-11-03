@@ -32,8 +32,7 @@ function Get-Configuration {
         [hashtable]$Overrides = @{}
     )
     
-    $scriptDir = Split-Path -Parent $PSScriptRoot
-    $configFile = Join-Path $scriptDir $ConfigPath
+    $configFile = Join-Path $PSScriptRoot $ConfigPath
     
     # 設定ファイルが存在しない場合
     if (-not (Test-Path $configFile)) {
@@ -181,6 +180,3 @@ function Test-Prerequisites {
     
     return $true
 }
-
-# エクスポート（モジュールとして使用する場合）
-Export-ModuleMember -Function Write-Log, Get-Configuration, Test-AzureCLI, Test-GitHubCLI, Test-Prerequisites
