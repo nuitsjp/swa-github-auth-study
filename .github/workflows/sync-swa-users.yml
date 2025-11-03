@@ -28,7 +28,8 @@ jobs:
         run: |
           # GitHub CLIは既にインストール済み
           # トークンで認証
-          gh auth login --with-token <<< "${{ secrets.GH_PAT }}"
+          echo '${{ secrets.GH_PAT }}' | gh auth login --with-token
+        shell: pwsh
       
       # ユーザー同期スクリプトを実行
       - name: Sync Users
