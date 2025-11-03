@@ -11,6 +11,8 @@ on:
 jobs:
   sync:
     runs-on: windows-latest
+    permissions:
+      contents: read
     
     steps:
       # リポジトリをチェックアウト
