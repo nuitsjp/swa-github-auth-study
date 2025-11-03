@@ -160,7 +160,7 @@ function Get-AzureStaticWebAppUsers {
         
         for ($i = 1; $i -le $retries; $i++) {
             try {
-                $output = az staticwebapp users list --name $AppName --resource-group $ResourceGroup --authentication-provider github 2>&1
+                $output = az staticwebapp users list --name $AppName --resource-group $ResourceGroup 2>&1
                 
                 if ($LASTEXITCODE -eq 0) {
                     # JSONパースを試行
@@ -212,15 +212,22 @@ function Add-AzureStaticWebAppUser {
         [string]$UserName,
         [int]$InvitationExpiresInHours = 168  # 7日間
     )
-    
+
     Write-Log "ユーザーを招待中: $UserName"
-    
+
     try {
+        # ドメイン名を取得
+        $domain = az staticwebapp show --name $AppName --resource-group $ResourceGroup --query 'defaultHostname' -o tsv 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            throw "ドメイン取得に失敗しました: $domain"
+        }
+
         $result = az staticwebapp users invite `
             --name $AppName `
             --resource-group $ResourceGroup `
-            --authentication-provider github `
+            --authentication-provider GitHub `
             --user-details $UserName `
+            --domain $domain `
             --roles authenticated `
             --invitation-expiration-in-hours $InvitationExpiresInHours `
             2>&1
@@ -255,7 +262,6 @@ function Remove-AzureStaticWebAppUser {
         $result = az staticwebapp users update `
             --name $AppName `
             --resource-group $ResourceGroup `
-            --authentication-provider github `
             --user-details $UserName `
             --roles anonymous `
             2>&1
