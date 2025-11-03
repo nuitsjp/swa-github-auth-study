@@ -4,11 +4,13 @@
 
 .DESCRIPTION
     Azure Service Principalを作成し、必要なシークレット（AZURE_CREDENTIALS、AZURE_STATIC_WEB_APP_NAME、
-    AZURE_RESOURCE_GROUP、GH_TOKEN）をGitHubリポジトリに自動的に登録します。
+    AZURE_RESOURCE_GROUP）をGitHubリポジトリに自動的に登録します。
 
     注意: このスクリプトを実行するには、GitHub Personal Access Tokenに以下の権限が必要です：
     - Classic token: 'repo' と 'workflow' スコープ
     - Fine-grained token: Actions と Secrets の Read/Write 権限
+
+    ワークフローは自動的にGITHUB_TOKENを使用するため、GH_TOKENシークレットは不要です。
 
 .PARAMETER SubscriptionId
     AzureサブスクリプションID
@@ -408,14 +410,6 @@ try {
         $failureCount++
     }
 
-    # GH_TOKENの設定
-    if (Set-GitHubSecret -Repo $GitHubRepo -SecretName "GH_TOKEN" -SecretValue $githubToken -Token $githubToken) {
-        $successCount++
-    }
-    else {
-        $failureCount++
-    }
-
     # AZURE_STATIC_WEB_APP_NAMEの設定
     if (Set-GitHubSecret -Repo $GitHubRepo -SecretName "AZURE_STATIC_WEB_APP_NAME" -SecretValue $StaticWebAppName -Token $githubToken) {
         $successCount++
@@ -446,9 +440,10 @@ try {
         Write-Log "" -Level INFO
         Write-Log "作成されたシークレット:" -Level INFO
         Write-Log "  - AZURE_CREDENTIALS (Azure Service Principal認証情報)" -Level INFO
-        Write-Log "  - GH_TOKEN (GitHub Personal Access Token)" -Level INFO
         Write-Log "  - AZURE_STATIC_WEB_APP_NAME ($StaticWebAppName)" -Level INFO
         Write-Log "  - AZURE_RESOURCE_GROUP ($ResourceGroup)" -Level INFO
+        Write-Log "" -Level INFO
+        Write-Log "注意: ワークフローはGITHUB_TOKENを自動使用するため、GH_TOKENは不要です" -Level INFO
     }
     else {
         Write-Log "" -Level WARNING

@@ -56,19 +56,11 @@ jobs:
             sudo apt-get install -y gh
           }
 
-      - name: Authenticate GitHub CLI
+      - name: Setup GitHub CLI authentication
         run: |
-          # GH_TOKENシークレットがあればそれを使用、なければGITHUB_TOKENを使用
-          if [ -n "${{ secrets.GH_TOKEN }}" ]; then
-            echo "Using GH_TOKEN secret"
-            echo "${{ secrets.GH_TOKEN }}" | gh auth login --with-token
-          else
-            echo "Using GITHUB_TOKEN (automatic)"
-            echo "${{ secrets.GITHUB_TOKEN }}" | gh auth login --with-token
-          fi
+          echo "Using GITHUB_TOKEN for authentication"
         env:
-          GH_TOKEN: ${{ secrets.GH_TOKEN }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set parameters
         id: params
@@ -87,6 +79,8 @@ jobs:
 
       - name: Get GitHub collaborators with push permission
         id: github-users
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           echo "Getting collaborators from ${{ steps.params.outputs.github_repo }}..."
 

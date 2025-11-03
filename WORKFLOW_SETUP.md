@@ -46,7 +46,9 @@
 1. Azure Service Principalの作成
 2. 必要な権限の付与
 3. GitHub Personal Access Tokenの取得（対話的）
-4. 4つのシークレット（AZURE_CREDENTIALS、GH_TOKEN、AZURE_STATIC_WEB_APP_NAME、AZURE_RESOURCE_GROUP）をGitHubリポジトリに登録
+4. 3つのシークレット（AZURE_CREDENTIALS、AZURE_STATIC_WEB_APP_NAME、AZURE_RESOURCE_GROUP）をGitHubリポジトリに登録
+
+**注意**: ワークフローは自動的に `GITHUB_TOKEN` を使用するため、`GH_TOKEN` シークレットの設定は不要です。
 
 **必要な前提条件：**
 - Azure CLI (az) のインストールと認証 (`az login`)
@@ -67,9 +69,6 @@
 
 #### 必須シークレット
 
-> **注意**: `GH_TOKEN` は通常は不要です。ワークフローは自動的に `GITHUB_TOKEN` を使用します。
-> コラボレーター取得時に権限エラーが発生する場合のみ、カスタムトークンを設定してください。
-
 - **`AZURE_CREDENTIALS`**
   ```json
   {
@@ -88,20 +87,7 @@
     --sdk-auth
   ```
 
-- **`GH_TOKEN`**（オプション）
-  - GitHub Personal Access Token（classic または fine-grained）
-  - **通常は不要**: ワークフローは自動的に `GITHUB_TOKEN` を使用します
-  - **設定が必要なケース**: プライベートリポジトリでコラボレーター情報の取得に失敗する場合
-  - **必要なスコープ（classic token）**：
-    - ✅ `repo` (Full control of private repositories)
-  - **必要な権限（fine-grained token）**：
-    - Repository access: 対象リポジトリを選択
-    - Permissions:
-      - Contents: Read-only
-      - Metadata: Read-only
-  - 作成方法：
-    - Classic: Settings > Developer settings > Personal access tokens > Tokens (classic) > Generate new token
-    - Fine-grained: Settings > Developer settings > Personal access tokens > Fine-grained tokens > Generate new token
+> **注意**: ワークフローは自動的に `GITHUB_TOKEN` を使用するため、`GH_TOKEN` シークレットは不要です。
 
 #### スケジュール実行用のシークレット（オプション）
 
