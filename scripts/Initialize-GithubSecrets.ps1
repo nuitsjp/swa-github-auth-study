@@ -296,32 +296,34 @@ try {
     $discussionBodyTemplate = ""
     $invitationExpiresInHours = $null
 
-    if ($config.Discussion) {
-        if ($config.Discussion.PSObject.Properties.Name -contains "Enabled") {
+    $discussionConfig = $config.Discussion
+    if ($discussionConfig -is [System.Collections.IDictionary]) {
+        if ($discussionConfig.ContainsKey("Enabled")) {
             try {
-                $discussionEnabled = [System.Convert]::ToBoolean($config.Discussion.Enabled)
+                $discussionEnabled = [System.Convert]::ToBoolean($discussionConfig["Enabled"])
             }
             catch {
-                Write-Log "config.json の discussion.enabled を boolean に変換できません: $($config.Discussion.Enabled)" -Level WARNING
+                Write-Log "config.json の discussion.enabled を boolean に変換できません: $($discussionConfig["Enabled"])" -Level WARNING
             }
         }
-        if ($config.Discussion.PSObject.Properties.Name -contains "CategoryId") {
-            $discussionCategoryId = $config.Discussion.CategoryId
+        if ($discussionConfig.ContainsKey("CategoryId")) {
+            $discussionCategoryId = $discussionConfig["CategoryId"]
         }
-        if ($config.Discussion.PSObject.Properties.Name -contains "Title") {
-            $discussionTitle = $config.Discussion.Title
+        if ($discussionConfig.ContainsKey("Title")) {
+            $discussionTitle = $discussionConfig["Title"]
         }
-        if ($config.Discussion.PSObject.Properties.Name -contains "BodyTemplate") {
-            $discussionBodyTemplate = $config.Discussion.BodyTemplate
+        if ($discussionConfig.ContainsKey("BodyTemplate")) {
+            $discussionBodyTemplate = $discussionConfig["BodyTemplate"]
         }
     }
 
-    if ($config.InvitationSettings -and $config.InvitationSettings.PSObject.Properties.Name -contains "ExpiresInHours") {
+    $invitationConfig = $config.InvitationSettings
+    if ($invitationConfig -is [System.Collections.IDictionary] -and $invitationConfig.ContainsKey("ExpiresInHours")) {
         try {
-            $invitationExpiresInHours = [int]$config.InvitationSettings.ExpiresInHours
+            $invitationExpiresInHours = [int]$invitationConfig["ExpiresInHours"]
         }
         catch {
-            Write-Log "config.json の invitationSettings.expiresInHours を整数に変換できません: $($config.InvitationSettings.ExpiresInHours)" -Level WARNING
+            Write-Log "config.json の invitationSettings.expiresInHours を整数に変換できません: $($invitationConfig["ExpiresInHours"])" -Level WARNING
             $invitationExpiresInHours = $null
         }
     }
