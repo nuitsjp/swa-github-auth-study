@@ -1,14 +1,17 @@
 {
   "routes": [
     {
+      "route": "/index.html",
+      "allowedRoles": ["github_collaborator"]
+    },
+    {
       "route": "/*",
-      "allowedRoles": [
-        "github_collaborator"
-      ]
+      "rewrite": "/index.html"
     }
   ],
   "navigationFallback": {
-    "rewrite": "/index.html"
+    "rewrite": "/index.html",
+    "exclude": ["/static/js/*", "/static/css/*", "*.json"]
   },
   "responseOverrides": {
     "401": {
