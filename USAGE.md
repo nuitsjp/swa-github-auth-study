@@ -501,6 +501,8 @@ az staticwebapp users list `
   -o table
 ```
 
+- `userId` がハッシュ値や `provider|username` の形式で表示される場合でも、スクリプトは内部で `--user-id` を指定して削除するため手動対応は不要です
+
 - 旧バージョンのスクリプトを使用している場合は最新版へ更新してください
 
 ## 制約事項

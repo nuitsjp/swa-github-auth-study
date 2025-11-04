@@ -146,7 +146,54 @@ function Get-AzureStaticWebAppUsers {
                             }
 
                             if ($roleList -contains "github_collaborator") {
-                                $users += $user.userId
+                                $provider = ""
+                                if ($user.PSObject.Properties.Name -contains "provider" -and $null -ne $user.provider) {
+                                    $provider = $user.provider.ToString().Trim()
+                                }
+
+                                $displayName = ""
+                                if ($user.PSObject.Properties.Name -contains "displayName" -and $null -ne $user.displayName) {
+                                    $displayName = $user.displayName.ToString().Trim()
+                                }
+                                elseif ($user.PSObject.Properties.Name -contains "userDetails" -and $null -ne $user.userDetails) {
+                                    $displayName = $user.userDetails.ToString().Trim()
+                                }
+
+                                $userId = if ($user.PSObject.Properties.Name -contains "userId") { $user.userId } else { $null }
+                                if ($null -eq $userId -and $user.PSObject.Properties.Name -contains "name") {
+                                    $userId = $user.name
+                                }
+
+                                $userId = if ($null -ne $userId) { $userId.ToString().Trim() } else { "" }
+
+                                if ([string]::IsNullOrWhiteSpace($displayName) -and -not [string]::IsNullOrWhiteSpace($userId)) {
+                                    if ($userId -match '^[^|]+\|(.+)$') {
+                                        $displayName = $Matches[1]
+                                    }
+                                    else {
+                                        $displayName = $userId
+                                    }
+                                }
+
+                                $normalizedName = $displayName
+                                if ([string]::IsNullOrWhiteSpace($normalizedName)) {
+                                    $normalizedName = $userId
+                                }
+
+                                $normalizedNameLower = if (-not [string]::IsNullOrWhiteSpace($normalizedName)) {
+                                    $normalizedName.ToLowerInvariant()
+                                }
+                                else {
+                                    ""
+                                }
+
+                                $users += [pscustomobject]@{
+                                    UserId = $userId
+                                    DisplayName = $displayName
+                                    Provider = $provider
+                                    NormalizedName = $normalizedName
+                                    NormalizedNameLower = $normalizedNameLower
+                                }
                             }
                         }
 
@@ -262,31 +309,56 @@ function Remove-AzureStaticWebAppUser {
     param(
         [string]$AppName,
         [string]$ResourceGroup,
-        [string]$UserName
+        [string]$UserId,
+        [string]$DisplayName,
+        [string]$Provider
     )
+
+    $targetLabel = if (-not [string]::IsNullOrWhiteSpace($DisplayName)) {
+        $DisplayName
+    }
+    elseif (-not [string]::IsNullOrWhiteSpace($UserId)) {
+        $UserId
+    }
+    else {
+        "(unknown)"
+    }
     
-    Write-Log "ユーザーを削除中: $UserName"
+    Write-Log "ユーザーを削除中: $targetLabel"
     
     try {
         # ユーザーをanonymousロールに更新することで実質的に削除
-        $result = az staticwebapp users update `
-            --name $AppName `
-            --resource-group $ResourceGroup `
-            --user-details $UserName `
-            --role anonymous `
-            2>&1
+        $azArgs = @(
+            "staticwebapp", "users", "update",
+            "--name", $AppName,
+            "--resource-group", $ResourceGroup
+        )
+
+        if (-not [string]::IsNullOrWhiteSpace($UserId)) {
+            $azArgs += @("--user-id", $UserId)
+        }
+        elseif (-not [string]::IsNullOrWhiteSpace($DisplayName)) {
+            $azArgs += @("--user-details", $DisplayName)
+            if (-not [string]::IsNullOrWhiteSpace($Provider)) {
+                $azArgs += @("--authentication-provider", $Provider)
+            }
+        }
+
+        $azArgs += @("--role", "anonymous")
+
+        $result = az @azArgs 2>&1
         
         if ($LASTEXITCODE -eq 0) {
-            Write-Log "ユーザーの削除に成功しました: $UserName" -Level SUCCESS
+            Write-Log "ユーザーの削除に成功しました: $targetLabel" -Level SUCCESS
             return $true
         }
         else {
-            Write-Log "ユーザーの削除に失敗しました: $UserName - $result" -Level ERROR
+            Write-Log "ユーザーの削除に失敗しました: $targetLabel - $result" -Level ERROR
             return $false
         }
     }
     catch {
-        Write-Log "ユーザーの削除中にエラーが発生しました: $UserName - $_" -Level ERROR
+        Write-Log "ユーザーの削除中にエラーが発生しました: $targetLabel - $_" -Level ERROR
         return $false
     }
 }
@@ -330,8 +402,57 @@ try {
     Write-Log "========================================" -Level INFO
     Write-Log "差分を計算中..." -Level INFO
     
-    $usersToAdd = $githubUsers | Where-Object { $_ -notin $azureUsers }
-    $usersToRemove = $azureUsers | Where-Object { $_ -notin $githubUsers }
+    $githubUsersNormalized = @()
+    foreach ($user in $githubUsers) {
+        if (-not [string]::IsNullOrWhiteSpace($user)) {
+            $githubUsersNormalized += $user.ToLowerInvariant()
+        }
+    }
+
+    $azureUserNamesNormalized = @()
+    foreach ($azureUser in $azureUsers) {
+        $normalizedLower = ""
+        if ($azureUser.PSObject.Properties.Name -contains "NormalizedNameLower" -and -not [string]::IsNullOrWhiteSpace($azureUser.NormalizedNameLower)) {
+            $normalizedLower = $azureUser.NormalizedNameLower
+        }
+        elseif ($azureUser.PSObject.Properties.Name -contains "NormalizedName" -and -not [string]::IsNullOrWhiteSpace($azureUser.NormalizedName)) {
+            $normalizedLower = $azureUser.NormalizedName.ToLowerInvariant()
+        }
+        elseif ($azureUser.PSObject.Properties.Name -contains "UserId" -and -not [string]::IsNullOrWhiteSpace($azureUser.UserId)) {
+            $normalizedLower = $azureUser.UserId.ToLowerInvariant()
+        }
+
+        $azureUserNamesNormalized += $normalizedLower
+    }
+
+    $usersToAdd = @()
+    foreach ($user in $githubUsers) {
+        if ([string]::IsNullOrWhiteSpace($user)) {
+            continue
+        }
+
+        $normalized = $user.ToLowerInvariant()
+        if ($azureUserNamesNormalized -notcontains $normalized) {
+            $usersToAdd += $user
+        }
+    }
+
+    $usersToRemove = @()
+    foreach ($azureUser in $azureUsers) {
+        $normalizedLower = ""
+        if ($azureUser.PSObject.Properties.Name -contains "NormalizedNameLower") {
+            $normalizedLower = $azureUser.NormalizedNameLower
+        }
+
+        if ([string]::IsNullOrWhiteSpace($normalizedLower)) {
+            $usersToRemove += $azureUser
+            continue
+        }
+
+        if ($githubUsersNormalized -notcontains $normalizedLower) {
+            $usersToRemove += $azureUser
+        }
+    }
     
     Write-Log "追加対象ユーザー数: $($usersToAdd.Count)" -Level INFO
     if ($usersToAdd.Count -gt 0) {
@@ -340,7 +461,22 @@ try {
     
     Write-Log "削除対象ユーザー数: $($usersToRemove.Count)" -Level INFO
     if ($usersToRemove.Count -gt 0) {
-        $usersToRemove | ForEach-Object { Write-Log "  - $_" -Level INFO }
+        foreach ($user in $usersToRemove) {
+            $label = if ($user.PSObject.Properties.Name -contains "DisplayName" -and -not [string]::IsNullOrWhiteSpace($user.DisplayName)) {
+                $user.DisplayName
+            }
+            elseif ($user.PSObject.Properties.Name -contains "NormalizedName" -and -not [string]::IsNullOrWhiteSpace($user.NormalizedName)) {
+                $user.NormalizedName
+            }
+            elseif ($user.PSObject.Properties.Name -contains "UserId" -and -not [string]::IsNullOrWhiteSpace($user.UserId)) {
+                $user.UserId
+            }
+            else {
+                "(unknown)"
+            }
+
+            Write-Log "  - $label" -Level INFO
+        }
     }
     
     if ($usersToAdd.Count -eq 0 -and $usersToRemove.Count -eq 0) {
@@ -383,7 +519,11 @@ try {
     if ($usersToRemove.Count -gt 0) {
         Write-Log "ユーザーを削除中..." -Level INFO
         foreach ($user in $usersToRemove) {
-            if (Remove-AzureStaticWebAppUser -AppName $AppName -ResourceGroup $ResourceGroup -UserName $user) {
+            $userId = if ($user.PSObject.Properties.Name -contains "UserId") { $user.UserId } else { "" }
+            $displayName = if ($user.PSObject.Properties.Name -contains "DisplayName") { $user.DisplayName } else { "" }
+            $provider = if ($user.PSObject.Properties.Name -contains "Provider") { $user.Provider } else { "" }
+
+            if (Remove-AzureStaticWebAppUser -AppName $AppName -ResourceGroup $ResourceGroup -UserId $userId -DisplayName $displayName -Provider $provider) {
                 $successCount++
             }
             else {
