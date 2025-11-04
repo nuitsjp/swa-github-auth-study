@@ -57,101 +57,18 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      - name: Install GitHub CLI if needed
-        run: |
-          if ! command -v gh >/dev/null 2>&1; then
-            sudo apt-get update
-            sudo apt-get install -y gh
-          fi
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Validate GitHub CLI authentication
-        run: gh auth status
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Sync Static Web App users
-        shell: pwsh
         run: |
-          if ([string]::IsNullOrWhiteSpace($env:STATIC_WEB_APP_NAME)) {
-              Write-Error "AZURE_STATIC_WEB_APP_NAME secret is required."
-              exit 1
-          }
-          if ([string]::IsNullOrWhiteSpace($env:RESOURCE_GROUP)) {
-              Write-Error "AZURE_RESOURCE_GROUP secret is required."
-              exit 1
-          }
+          set -euo pipefail
+          # GitHub CLI と Azure CLI を用いてコラボレーターと Static Web App ユーザーを取得
+          # 差分を計算し、招待・削除・Discussion 投稿まで一括で実行します
+          # 詳細な処理はリポジトリの .github/workflows/sync-swa-users.yml を参照してください
 
-          $params = @{}
-          $params["StaticWebAppName"] = $env:STATIC_WEB_APP_NAME
-          $params["ResourceGroup"] = $env:RESOURCE_GROUP
-          if (-not [string]::IsNullOrWhiteSpace($env:SUBSCRIPTION_ID)) {
-              $params["SubscriptionId"] = $env:SUBSCRIPTION_ID
-          }
-
-          try {
-              $dryRun = [System.Convert]::ToBoolean($env:DRY_RUN_INPUT)
-          }
-          catch {
-              Write-Warning "Invalid dry_run input '$($env:DRY_RUN_INPUT)'. Falling back to false."
-              $dryRun = $false
-          }
-          $params["DryRun"] = [bool]$dryRun
-
-          if (-not [string]::IsNullOrWhiteSpace($env:DISCUSSION_ENABLED)) {
-              try {
-                  $discussionEnabled = [System.Convert]::ToBoolean($env:DISCUSSION_ENABLED)
-              }
-              catch {
-                  Write-Warning "Invalid SWA_DISCUSSION_ENABLED value: $($env:DISCUSSION_ENABLED)"
-                  $discussionEnabled = $false
-              }
-              $params["DiscussionEnabled"] = [bool]$discussionEnabled
-
-              if ($discussionEnabled -and [string]::IsNullOrWhiteSpace($env:DISCUSSION_CATEGORY_ID)) {
-                  Write-Error "SWA_DISCUSSION_CATEGORY_ID secret is required when SWA_DISCUSSION_ENABLED is true."
-                  exit 1
-              }
-              if ($discussionEnabled -and [string]::IsNullOrWhiteSpace($env:DISCUSSION_BODY_TEMPLATE) -and -not (Test-Path "$PWD/invitation-body-template.txt")) {
-                  Write-Error "SWA_DISCUSSION_BODY_TEMPLATE secret or default template file is required when SWA_DISCUSSION_ENABLED is true."
-                  exit 1
-              }
-          }
-
-          if (-not [string]::IsNullOrWhiteSpace($env:DISCUSSION_CATEGORY_ID)) {
-              $params["DiscussionCategoryId"] = $env:DISCUSSION_CATEGORY_ID
-          }
-          if (-not [string]::IsNullOrWhiteSpace($env:DISCUSSION_TITLE)) {
-              $params["DiscussionTitle"] = $env:DISCUSSION_TITLE
-          }
-
-          if (-not [string]::IsNullOrWhiteSpace($env:DISCUSSION_BODY_TEMPLATE)) {
-              $params["DiscussionBodyTemplate"] = $env:DISCUSSION_BODY_TEMPLATE
-          }
-          elseif (Test-Path "$PWD/invitation-body-template.txt") {
-              $params["DiscussionBodyTemplate"] = "invitation-body-template.txt"
-          }
-
-          if (-not [string]::IsNullOrWhiteSpace($env:INVITATION_EXPIRES_HOURS)) {
-              $expires = 0
-              if ([int]::TryParse($env:INVITATION_EXPIRES_HOURS, [ref]$expires) -and $expires -gt 0) {
-                  $params["InvitationExpiresInHours"] = $expires
-              }
-              else {
-                  Write-Warning "Invalid SWA_INVITATION_EXPIRES_HOURS value: $env:INVITATION_EXPIRES_HOURS"
-              }
-          }
-
-          Write-Host "Starting Sync-SwaUsers.ps1 with parameters:"
-          foreach ($key in $params.Keys) {
-              Write-Host ("  {0} = {1}" -f $key, $params[$key])
-          }
-
-          & "$PWD/scripts/Sync-SwaUsers.ps1" @params
-```
-
-スクリプトは、チェックアウトされたリポジトリの `origin` リモート (`${{ github.repository }}`) から GitHub リポジトリ名を自動検出します。ローカル・CI ともに `git remote get-url origin` が期待するGitHubリポジトリを指しているか必ず確認してください。`origin` が未設定、または GitHub 以外を指す場合はスクリプトがエラーで停止します。
+スクリプトはチェックアウト済みリポジトリの `origin` (= `${{ github.repository }}`) から対象リポジトリ名を解決し、
+GitHub CLI (`gh api`) と Azure CLI (`az staticwebapp users ...`) を直接呼び出します。
+コマンドで取得した GitHub コラボレーターや Azure 側のユーザー一覧をログに出力し、
+差分がある場合は `sync.dryRun` と `workflow_dispatch` 入力の組み合わせでドライランも可能です。
+また招待時に取得した URL を元に Discussion への通知も Bash 内で実行します。
 
 > ℹ️ `GITHUB_TOKEN` のワークフローパーミッションをリポジトリ設定で `Read and write` にしておくと、Discussions への投稿権限（`discussions: write`）が付与されます。追加の PAT は不要です。
 
@@ -193,7 +110,7 @@ az ad sp create-for-rbac --name "github-actions-swa-sync" --role contributor \
 - `SWA_DISCUSSION_ENABLED`: `true` または `false`
 - `SWA_DISCUSSION_CATEGORY_ID`: Discussion カテゴリ ID（enabled が `true` の場合必須）
 - `SWA_DISCUSSION_TITLE`: Discussion タイトルテンプレート（`{username}` を置換可能）
-- `SWA_DISCUSSION_BODY_TEMPLATE`: Discussion 本文テンプレートのパス（リポジトリルートからの相対パスを推奨）
+- `SWA_DISCUSSION_BODY_TEMPLATE`: Discussion 本文テンプレート（相対パスまたは本文文字列のどちらでも可）
 
 ### 4. 招待期限の調整（任意）
 
