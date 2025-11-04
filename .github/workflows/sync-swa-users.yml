@@ -75,16 +75,11 @@ jobs:
               exit 1
           }
 
-          $params = @()
-
-          if (-not [string]::IsNullOrWhiteSpace($env:STATIC_WEB_APP_NAME)) {
-              $params += @("-StaticWebAppName", $env:STATIC_WEB_APP_NAME)
-          }
-          if (-not [string]::IsNullOrWhiteSpace($env:RESOURCE_GROUP)) {
-              $params += @("-ResourceGroup", $env:RESOURCE_GROUP)
-          }
+          $params = @{}
+          $params["StaticWebAppName"] = $env:STATIC_WEB_APP_NAME
+          $params["ResourceGroup"] = $env:RESOURCE_GROUP
           if (-not [string]::IsNullOrWhiteSpace($env:SUBSCRIPTION_ID)) {
-              $params += @("-SubscriptionId", $env:SUBSCRIPTION_ID)
+              $params["SubscriptionId"] = $env:SUBSCRIPTION_ID
           }
 
           try {
@@ -94,7 +89,7 @@ jobs:
               Write-Warning "Invalid dry_run input '$($env:DRY_RUN_INPUT)'. Falling back to false."
               $dryRun = $false
           }
-          $params += @("-DryRun", $dryRun)
+          $params["DryRun"] = [bool]$dryRun
 
           if (-not [string]::IsNullOrWhiteSpace($env:DISCUSSION_ENABLED)) {
               $discussionEnabled = $env:DISCUSSION_ENABLED
@@ -105,7 +100,7 @@ jobs:
                   Write-Warning "Invalid SWA_DISCUSSION_ENABLED value: $discussionEnabled"
                   $discussionEnabled = $false
               }
-              $params += @("-DiscussionEnabled", $discussionEnabled)
+              $params["DiscussionEnabled"] = [bool]$discussionEnabled
 
               if ($discussionEnabled -and [string]::IsNullOrWhiteSpace($env:DISCUSSION_CATEGORY_ID)) {
                   Write-Error "SWA_DISCUSSION_CATEGORY_ID secret is required when SWA_DISCUSSION_ENABLED is true."
@@ -118,28 +113,32 @@ jobs:
           }
 
           if (-not [string]::IsNullOrWhiteSpace($env:DISCUSSION_CATEGORY_ID)) {
-              $params += @("-DiscussionCategoryId", $env:DISCUSSION_CATEGORY_ID)
+              $params["DiscussionCategoryId"] = $env:DISCUSSION_CATEGORY_ID
           }
           if (-not [string]::IsNullOrWhiteSpace($env:DISCUSSION_TITLE)) {
-              $params += @("-DiscussionTitle", $env:DISCUSSION_TITLE)
+              $params["DiscussionTitle"] = $env:DISCUSSION_TITLE
           }
 
           if (-not [string]::IsNullOrWhiteSpace($env:DISCUSSION_BODY_TEMPLATE)) {
-              $params += @("-DiscussionBodyTemplate", $env:DISCUSSION_BODY_TEMPLATE)
+              $params["DiscussionBodyTemplate"] = $env:DISCUSSION_BODY_TEMPLATE
           }
           elseif (Test-Path "$PWD/invitation-body-template.txt") {
-              $params += @("-DiscussionBodyTemplate", "invitation-body-template.txt")
+              $params["DiscussionBodyTemplate"] = "invitation-body-template.txt"
           }
 
           if (-not [string]::IsNullOrWhiteSpace($env:INVITATION_EXPIRES_HOURS)) {
               $expires = 0
               if ([int]::TryParse($env:INVITATION_EXPIRES_HOURS, [ref]$expires) -and $expires -gt 0) {
-                  $params += @("-InvitationExpiresInHours", $expires)
+                  $params["InvitationExpiresInHours"] = $expires
               }
               else {
                   Write-Warning "Invalid SWA_INVITATION_EXPIRES_HOURS value: $env:INVITATION_EXPIRES_HOURS"
               }
           }
 
-          Write-Host "Starting Sync-SwaUsers.ps1 with parameters: $($params -join ' ')"
+          Write-Host "Starting Sync-SwaUsers.ps1 with parameters:"
+          foreach ($key in $params.Keys) {
+              Write-Host ("  {0} = {1}" -f $key, $params[$key])
+          }
+
           & "$PWD/scripts/Sync-SwaUsers.ps1" @params
