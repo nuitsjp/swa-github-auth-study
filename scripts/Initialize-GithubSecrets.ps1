@@ -4,9 +4,9 @@
 
 .DESCRIPTION
     Azure Service Principalを作成し、必要なシークレット（AZURE_CREDENTIALS、AZURE_STATIC_WEB_APP_NAME、
-    AZURE_RESOURCE_GROUP）をGitHubリポジトリに自動的に登録します。
+    AZURE_RESOURCE_GROUP など）をGitHubリポジトリに自動的に登録します。
     対象のGitHubリポジトリは、スクリプトを実行したGitリポジトリの`origin`リモートから自動検出されます。
-    設定値はリポジトリルートの config.json から読み込みます。
+    設定値は指定された config.json から読み込みます。
 
     注意: このスクリプトを実行するには、GitHub Personal Access Tokenに以下の権限が必要です：
     - Classic token: 'repo' と 'workflow' スコープ
@@ -16,6 +16,12 @@
 
 .EXAMPLE
     pwsh -File .\scripts\Initialize-GithubSecrets.ps1
+
+.EXAMPLE
+    pwsh -File .\scripts\Initialize-GithubSecrets.ps1 -ConfigPath .\config.prod.json
+
+.PARAMETER ConfigPath
+    読み込む設定ファイルのパス。既定値はリポジトリルートの config.json です。
 
 .NOTES
     必要な権限:
@@ -39,6 +45,10 @@ $ErrorActionPreference = "Stop"
 # 共通関数を読み込む
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 . (Join-Path $scriptDir "common-functions.ps1")
+
+param(
+    [string]$ConfigPath = "config.json"
+)
 
 # Azure Service Principalの作成
 function New-AzureServicePrincipal {
@@ -271,8 +281,8 @@ function Set-GitHubSecret {
 
 # メイン処理
 try {
-    # 設定ファイルを読み込む
-    $config = Get-Configuration
+# 設定ファイルを読み込む
+    $config = Get-Configuration -ConfigPath $ConfigPath
     
     # 設定から値を取得
     $SubscriptionId = $config.Azure.SubscriptionId
@@ -280,10 +290,53 @@ try {
     $StaticWebAppName = $config.Azure.StaticWebAppName
     $ServicePrincipalName = $config.ServicePrincipal.Name
     $GitHubRepo = Get-GitHubRepositoryFromGit -StartPath $scriptDir
+    $discussionEnabled = $null
+    $discussionCategoryId = ""
+    $discussionTitle = ""
+    $discussionBodyTemplate = ""
+    $invitationExpiresInHours = $null
+
+    if ($config.Discussion) {
+        if ($config.Discussion.PSObject.Properties.Name -contains "Enabled") {
+            try {
+                $discussionEnabled = [System.Convert]::ToBoolean($config.Discussion.Enabled)
+            }
+            catch {
+                Write-Log "config.json の discussion.enabled を boolean に変換できません: $($config.Discussion.Enabled)" -Level WARNING
+            }
+        }
+        if ($config.Discussion.PSObject.Properties.Name -contains "CategoryId") {
+            $discussionCategoryId = $config.Discussion.CategoryId
+        }
+        if ($config.Discussion.PSObject.Properties.Name -contains "Title") {
+            $discussionTitle = $config.Discussion.Title
+        }
+        if ($config.Discussion.PSObject.Properties.Name -contains "BodyTemplate") {
+            $discussionBodyTemplate = $config.Discussion.BodyTemplate
+        }
+    }
+
+    if ($config.InvitationSettings -and $config.InvitationSettings.PSObject.Properties.Name -contains "ExpiresInHours") {
+        try {
+            $invitationExpiresInHours = [int]$config.InvitationSettings.ExpiresInHours
+        }
+        catch {
+            Write-Log "config.json の invitationSettings.expiresInHours を整数に変換できません: $($config.InvitationSettings.ExpiresInHours)" -Level WARNING
+            $invitationExpiresInHours = $null
+        }
+    }
+
+    try {
+        $resolvedConfigPath = (Resolve-Path -Path $ConfigPath -ErrorAction Stop).Path
+    }
+    catch {
+        $resolvedConfigPath = $ConfigPath
+    }
     
     Write-Log "========================================" -Level INFO
     Write-Log "GitHub Secretsセットアップスクリプト" -Level INFO
     Write-Log "========================================" -Level INFO
+    Write-Log "ConfigPath: $resolvedConfigPath" -Level INFO
     Write-Log "SubscriptionId: $SubscriptionId" -Level INFO
     Write-Log "ResourceGroup: $ResourceGroup" -Level INFO
     Write-Log "StaticWebAppName: $StaticWebAppName" -Level INFO
@@ -351,28 +404,73 @@ try {
     $successCount = 0
     $failureCount = 0
 
-    # AZURE_CREDENTIALSの設定
-    if (Set-GitHubSecret -Repo $GitHubRepo -SecretName "AZURE_CREDENTIALS" -SecretValue $azureCredentialsJson -Token $githubToken) {
-        $successCount++
-    }
-    else {
-        $failureCount++
+    $secretDefinitions = @(
+        @{ Name = "AZURE_CREDENTIALS"; Value = $azureCredentialsJson; Required = $true; Description = "Azure Service Principal認証情報" },
+        @{ Name = "AZURE_STATIC_WEB_APP_NAME"; Value = $StaticWebAppName; Required = $true; Description = "Static Web App 名" },
+        @{ Name = "AZURE_RESOURCE_GROUP"; Value = $ResourceGroup; Required = $true; Description = "リソースグループ名" }
+    )
+
+    if (-not [string]::IsNullOrWhiteSpace($SubscriptionId)) {
+        $secretDefinitions += @{ Name = "AZURE_SUBSCRIPTION_ID"; Value = $SubscriptionId; Required = $false; Description = "サブスクリプション ID" }
     }
 
-    # AZURE_STATIC_WEB_APP_NAMEの設定
-    if (Set-GitHubSecret -Repo $GitHubRepo -SecretName "AZURE_STATIC_WEB_APP_NAME" -SecretValue $StaticWebAppName -Token $githubToken) {
-        $successCount++
-    }
-    else {
-        $failureCount++
+    if ($null -ne $discussionEnabled) {
+        $secretDefinitions += @{
+            Name = "SWA_DISCUSSION_ENABLED"
+            Value = $discussionEnabled.ToString().ToLowerInvariant()
+            Required = $false
+            Description = "Discussion 投稿の有効/無効"
+        }
     }
 
-    # AZURE_RESOURCE_GROUPの設定
-    if (Set-GitHubSecret -Repo $GitHubRepo -SecretName "AZURE_RESOURCE_GROUP" -SecretValue $ResourceGroup -Token $githubToken) {
-        $successCount++
+    if (-not [string]::IsNullOrWhiteSpace($discussionCategoryId)) {
+        $secretDefinitions += @{ Name = "SWA_DISCUSSION_CATEGORY_ID"; Value = $discussionCategoryId; Required = $false; Description = "Discussion カテゴリ ID" }
     }
-    else {
-        $failureCount++
+
+    if (-not [string]::IsNullOrWhiteSpace($discussionTitle)) {
+        $secretDefinitions += @{ Name = "SWA_DISCUSSION_TITLE"; Value = $discussionTitle; Required = $false; Description = "Discussion タイトル" }
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($discussionBodyTemplate)) {
+        $secretDefinitions += @{ Name = "SWA_DISCUSSION_BODY_TEMPLATE"; Value = $discussionBodyTemplate; Required = $false; Description = "Discussion 本文テンプレート" }
+    }
+
+    if ($invitationExpiresInHours -gt 0) {
+        $secretDefinitions += @{
+            Name = "SWA_INVITATION_EXPIRES_HOURS"
+            Value = $invitationExpiresInHours.ToString()
+            Required = $false
+            Description = "招待リンク有効期限 (時間)"
+        }
+    }
+
+    $createdSecrets = @()
+    $skippedSecrets = @()
+
+    foreach ($secret in $secretDefinitions) {
+        $value = $secret.Value
+        $name = $secret.Name
+        $required = [bool]$secret.Required
+
+        if ($null -eq $value -or ([string]::IsNullOrWhiteSpace($value) -and $value -ne "0")) {
+            if ($required) {
+                Write-Log "$name の値が空のためシークレットを設定できません" -Level ERROR
+                $failureCount++
+            }
+            else {
+                Write-Log "$name の値が空のためシークレット設定をスキップします" -Level WARNING
+                $skippedSecrets += $name
+            }
+            continue
+        }
+
+        if (Set-GitHubSecret -Repo $GitHubRepo -SecretName $name -SecretValue $value -Token $githubToken) {
+            $successCount++
+            $createdSecrets += $name
+        }
+        else {
+            $failureCount++
+        }
     }
 
     Write-Log "========================================" -Level INFO
@@ -387,10 +485,19 @@ try {
         Write-Log "1. GitHubリポジトリの Settings > Secrets and variables > Actions でシークレットを確認" -Level INFO
         Write-Log "2. GitHub Actionsワークフローを実行してテスト" -Level INFO
         Write-Log "" -Level INFO
-        Write-Log "作成されたシークレット:" -Level INFO
-        Write-Log "  - AZURE_CREDENTIALS (Azure Service Principal認証情報)" -Level INFO
-        Write-Log "  - AZURE_STATIC_WEB_APP_NAME ($StaticWebAppName)" -Level INFO
-        Write-Log "  - AZURE_RESOURCE_GROUP ($ResourceGroup)" -Level INFO
+        if ($createdSecrets.Count -gt 0) {
+            Write-Log "作成されたシークレット:" -Level INFO
+            foreach ($secretName in $createdSecrets) {
+                Write-Log ("  - {0}" -f $secretName) -Level INFO
+            }
+        }
+        if ($skippedSecrets.Count -gt 0) {
+            Write-Log "" -Level WARNING
+            Write-Log "値が空だったためスキップしたシークレット:" -Level WARNING
+            foreach ($secretName in $skippedSecrets) {
+                Write-Log ("  - {0}" -f $secretName) -Level WARNING
+            }
+        }
         Write-Log "" -Level INFO
         Write-Log "注意: ワークフローはGITHUB_TOKENを自動使用するため、GH_TOKENは不要です" -Level INFO
     }
