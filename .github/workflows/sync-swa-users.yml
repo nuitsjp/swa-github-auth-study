@@ -23,6 +23,14 @@ jobs:
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       DRY_RUN_INPUT: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.dry_run || 'false' }}
+      STATIC_WEB_APP_NAME: ${{ secrets.AZURE_STATIC_WEB_APP_NAME }}
+      RESOURCE_GROUP: ${{ secrets.AZURE_RESOURCE_GROUP }}
+      SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      DISCUSSION_ENABLED: ${{ secrets.SWA_DISCUSSION_ENABLED }}
+      DISCUSSION_CATEGORY_ID: ${{ secrets.SWA_DISCUSSION_CATEGORY_ID }}
+      DISCUSSION_TITLE: ${{ secrets.SWA_DISCUSSION_TITLE }}
+      DISCUSSION_BODY_TEMPLATE: ${{ secrets.SWA_DISCUSSION_BODY_TEMPLATE }}
+      INVITATION_EXPIRES_HOURS: ${{ secrets.SWA_INVITATION_EXPIRES_HOURS }}
 
     steps:
       - name: Ensure GITHUB_TOKEN is available
@@ -55,31 +63,83 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Configure dry-run mode
-        shell: pwsh
-        run: |
-          $configPath = "config.json"
-          if (-not (Test-Path $configPath)) {
-              Write-Error "config.json が見つかりません。リポジトリにコミットされていることを確認してください。"
-              exit 1
-          }
-
-          $config = Get-Content $configPath -Raw | ConvertFrom-Json
-          $dryRunInput = $env:DRY_RUN_INPUT
-          $dryRun = $dryRunInput -eq 'true'
-
-          if ($null -eq $config.sync) {
-              $config | Add-Member -NotePropertyName sync -NotePropertyValue (@{ dryRun = $dryRun }) -Force
-          }
-          else {
-              $config.sync.dryRun = $dryRun
-          }
-
-          $config | ConvertTo-Json -Depth 10 | Set-Content -Path $configPath -Encoding utf8
-          Write-Host ("sync.dryRun を {0} に設定しました" -f $dryRun)
-
       - name: Sync Static Web App users
         shell: pwsh
         run: |
-          Write-Host "Starting Sync-SwaUsers.ps1 (dryRun = $env:DRY_RUN_INPUT)"
-          & "$PWD/scripts/Sync-SwaUsers.ps1"
+          if ([string]::IsNullOrWhiteSpace($env:STATIC_WEB_APP_NAME)) {
+              Write-Error "AZURE_STATIC_WEB_APP_NAME secret is required."
+              exit 1
+          }
+          if ([string]::IsNullOrWhiteSpace($env:RESOURCE_GROUP)) {
+              Write-Error "AZURE_RESOURCE_GROUP secret is required."
+              exit 1
+          }
+
+          $params = @()
+
+          if (-not [string]::IsNullOrWhiteSpace($env:STATIC_WEB_APP_NAME)) {
+              $params += @("-StaticWebAppName", $env:STATIC_WEB_APP_NAME)
+          }
+          if (-not [string]::IsNullOrWhiteSpace($env:RESOURCE_GROUP)) {
+              $params += @("-ResourceGroup", $env:RESOURCE_GROUP)
+          }
+          if (-not [string]::IsNullOrWhiteSpace($env:SUBSCRIPTION_ID)) {
+              $params += @("-SubscriptionId", $env:SUBSCRIPTION_ID)
+          }
+
+          try {
+              $dryRun = [System.Convert]::ToBoolean($env:DRY_RUN_INPUT)
+          }
+          catch {
+              Write-Warning "Invalid dry_run input '$($env:DRY_RUN_INPUT)'. Falling back to false."
+              $dryRun = $false
+          }
+          $params += @("-DryRun", $dryRun)
+
+          if (-not [string]::IsNullOrWhiteSpace($env:DISCUSSION_ENABLED)) {
+              $discussionEnabled = $env:DISCUSSION_ENABLED
+              try {
+                  $discussionEnabled = [System.Convert]::ToBoolean($discussionEnabled)
+              }
+              catch {
+                  Write-Warning "Invalid SWA_DISCUSSION_ENABLED value: $discussionEnabled"
+                  $discussionEnabled = $false
+              }
+              $params += @("-DiscussionEnabled", $discussionEnabled)
+
+              if ($discussionEnabled -and [string]::IsNullOrWhiteSpace($env:DISCUSSION_CATEGORY_ID)) {
+                  Write-Error "SWA_DISCUSSION_CATEGORY_ID secret is required when SWA_DISCUSSION_ENABLED is true."
+                  exit 1
+              }
+              if ($discussionEnabled -and [string]::IsNullOrWhiteSpace($env:DISCUSSION_BODY_TEMPLATE) -and -not (Test-Path "$PWD/invitation-body-template.txt")) {
+                  Write-Error "SWA_DISCUSSION_BODY_TEMPLATE secret or default template file is required when SWA_DISCUSSION_ENABLED is true."
+                  exit 1
+              }
+          }
+
+          if (-not [string]::IsNullOrWhiteSpace($env:DISCUSSION_CATEGORY_ID)) {
+              $params += @("-DiscussionCategoryId", $env:DISCUSSION_CATEGORY_ID)
+          }
+          if (-not [string]::IsNullOrWhiteSpace($env:DISCUSSION_TITLE)) {
+              $params += @("-DiscussionTitle", $env:DISCUSSION_TITLE)
+          }
+
+          if (-not [string]::IsNullOrWhiteSpace($env:DISCUSSION_BODY_TEMPLATE)) {
+              $params += @("-DiscussionBodyTemplate", $env:DISCUSSION_BODY_TEMPLATE)
+          }
+          elseif (Test-Path "$PWD/invitation-body-template.txt") {
+              $params += @("-DiscussionBodyTemplate", "invitation-body-template.txt")
+          }
+
+          if (-not [string]::IsNullOrWhiteSpace($env:INVITATION_EXPIRES_HOURS)) {
+              $expires = 0
+              if ([int]::TryParse($env:INVITATION_EXPIRES_HOURS, [ref]$expires) -and $expires -gt 0) {
+                  $params += @("-InvitationExpiresInHours", $expires)
+              }
+              else {
+                  Write-Warning "Invalid SWA_INVITATION_EXPIRES_HOURS value: $env:INVITATION_EXPIRES_HOURS"
+              }
+          }
+
+          Write-Host "Starting Sync-SwaUsers.ps1 with parameters: $($params -join ' ')"
+          & "$PWD/scripts/Sync-SwaUsers.ps1" @params

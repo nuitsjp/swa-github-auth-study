@@ -6,7 +6,34 @@
     GitHubリポジトリでpush権限を持つユーザーを取得し、Azure Static Web Appの認証済みユーザーと同期します。
     GitHubにあってAzureにないユーザーは追加し、Azureにのみ存在するユーザーは削除します。
     対象となるGitHubリポジトリは、スクリプトを実行したGitリポジトリの`origin`リモートから自動検出されます。
-    設定値はリポジトリルートの config.json から読み込みます。
+    設定値はリポジトリルートの config.json から読み込みますが、引数で指定した値がある場合はそちらを優先します。
+
+.PARAMETER StaticWebAppName
+    同期対象となる Azure Static Web App 名。未指定の場合は config.json の値を使用します。
+
+.PARAMETER ResourceGroup
+    Static Web App が所属するリソースグループ名。未指定の場合は config.json の値を使用します。
+
+.PARAMETER SubscriptionId
+    Static Web App が存在するサブスクリプション ID。config.json がない場合でも引数で指定できます。
+
+.PARAMETER DryRun
+    ドライランモードを明示的に指定します。`true` の場合は差分のみを表示し、変更は行いません。
+
+.PARAMETER DiscussionEnabled
+    招待リンクを GitHub Discussions に投稿するかどうかを明示的に指定します。
+
+.PARAMETER DiscussionCategoryId
+    Discussion を投稿するカテゴリ ID。`DiscussionEnabled` が `true` の場合は必須です。
+
+.PARAMETER DiscussionTitle
+    Discussion 投稿時のタイトル。`{username}` プレースホルダーを使用できます。
+
+.PARAMETER DiscussionBodyTemplate
+    Discussion 投稿本文のテンプレートファイルへのパス。リポジトリルートからの相対パスを想定しています。
+
+.PARAMETER InvitationExpiresInHours
+    招待リンクの有効期限（時間）。指定がない場合は 168 時間（7 日間）になります。
 
 .EXAMPLE
     pwsh -File .\scripts\Sync-SwaUsers.ps1
@@ -20,6 +47,18 @@
     - Azure CLI (az) のインストールと認証 (az login)
     - GitHub CLI (gh) のインストールと認証 (gh auth login)
 #>
+
+param(
+    [string]$StaticWebAppName,
+    [string]$ResourceGroup,
+    [string]$SubscriptionId,
+    [Nullable[bool]]$DryRun,
+    [Nullable[bool]]$DiscussionEnabled,
+    [string]$DiscussionCategoryId,
+    [string]$DiscussionTitle,
+    [string]$DiscussionBodyTemplate,
+    [Nullable[int]]$InvitationExpiresInHours
+)
 
 # エラー発生時に停止
 $ErrorActionPreference = "Stop"
@@ -365,13 +404,125 @@ function Remove-AzureStaticWebAppUser {
 
 # メイン処理
 try {
-    # 設定ファイルを読み込む
-    $config = Get-Configuration
-    
-    # 設定から値を取得
+    # 設定ファイルを読み込み（存在しない場合は引数のみで実行）
+    $config = Get-Configuration -Optional
+
+    if ($null -eq $config) {
+        $config = @{
+            Azure = @{
+                SubscriptionId = $null
+                ResourceGroup = $null
+                StaticWebAppName = $null
+            }
+            ServicePrincipal = @{
+                Name = $null
+            }
+            InvitationSettings = @{
+                ExpiresInHours = 168
+            }
+            Discussion = @{
+                Enabled = $false
+                CategoryId = ""
+                Title = "Azure Static Web App への招待: {username}"
+                BodyTemplate = ""
+            }
+            Sync = @{
+                DryRun = $false
+            }
+        }
+    }
+
+    if ($null -eq $config.Azure) { $config.Azure = @{} }
+    if ($null -eq $config.InvitationSettings) { $config.InvitationSettings = @{ ExpiresInHours = 168 } }
+    if ($null -eq $config.Discussion) {
+        $config.Discussion = @{
+            Enabled = $false
+            CategoryId = ""
+            Title = "Azure Static Web App への招待: {username}"
+            BodyTemplate = ""
+        }
+    }
+    if ($null -eq $config.Sync) { $config.Sync = @{ DryRun = $false } }
+
+    if ($PSBoundParameters.ContainsKey('SubscriptionId') -and -not [string]::IsNullOrWhiteSpace($SubscriptionId)) {
+        $config.Azure.SubscriptionId = $SubscriptionId
+    }
+
+    if ($PSBoundParameters.ContainsKey('StaticWebAppName') -and -not [string]::IsNullOrWhiteSpace($StaticWebAppName)) {
+        $config.Azure.StaticWebAppName = $StaticWebAppName
+    }
+
+    if ($PSBoundParameters.ContainsKey('ResourceGroup') -and -not [string]::IsNullOrWhiteSpace($ResourceGroup)) {
+        $config.Azure.ResourceGroup = $ResourceGroup
+    }
+
+    if ($PSBoundParameters.ContainsKey('DryRun')) {
+        $config.Sync.DryRun = [bool]$DryRun
+    }
+
+    if ($PSBoundParameters.ContainsKey('DiscussionEnabled')) {
+        $config.Discussion.Enabled = [bool]$DiscussionEnabled
+    }
+
+    if ($PSBoundParameters.ContainsKey('DiscussionCategoryId') -and -not [string]::IsNullOrWhiteSpace($DiscussionCategoryId)) {
+        $config.Discussion.CategoryId = $DiscussionCategoryId
+    }
+
+    if ($PSBoundParameters.ContainsKey('DiscussionTitle') -and -not [string]::IsNullOrWhiteSpace($DiscussionTitle)) {
+        $config.Discussion.Title = $DiscussionTitle
+    }
+
+    if ($PSBoundParameters.ContainsKey('DiscussionBodyTemplate') -and -not [string]::IsNullOrWhiteSpace($DiscussionBodyTemplate)) {
+        $config.Discussion.BodyTemplate = $DiscussionBodyTemplate
+    }
+
+    if ($PSBoundParameters.ContainsKey('InvitationExpiresInHours') -and $null -ne $InvitationExpiresInHours) {
+        $config.InvitationSettings.ExpiresInHours = [int]$InvitationExpiresInHours
+    }
+
     $AppName = $config.Azure.StaticWebAppName
     $ResourceGroup = $config.Azure.ResourceGroup
     $DryRun = [bool]$config.Sync.DryRun
+    $InvitationExpirationInHours = if ($config.InvitationSettings.PSObject.Properties.Name -contains "ExpiresInHours" -and $null -ne $config.InvitationSettings.ExpiresInHours) {
+        [int]$config.InvitationSettings.ExpiresInHours
+    }
+    else {
+        168
+    }
+
+    if ($InvitationExpirationInHours -le 0) {
+        Write-Log "招待リンクの有効期限 (InvitationExpiresInHours) は1以上の値を指定してください。" -Level ERROR
+        exit 1
+    }
+
+    $discussionEnabled = $false
+    if ($config.Discussion.PSObject.Properties.Name -contains "Enabled" -and $null -ne $config.Discussion.Enabled) {
+        $discussionEnabled = [System.Convert]::ToBoolean($config.Discussion.Enabled)
+        $config.Discussion.Enabled = $discussionEnabled
+    }
+
+    if ([string]::IsNullOrWhiteSpace($AppName)) {
+        Write-Log "Azure Static Web App 名が指定されていません。-StaticWebAppName 引数または config.json を確認してください。" -Level ERROR
+        exit 1
+    }
+
+    if ([string]::IsNullOrWhiteSpace($ResourceGroup)) {
+        Write-Log "リソースグループ名が指定されていません。-ResourceGroup 引数または config.json を確認してください。" -Level ERROR
+        exit 1
+    }
+
+    if ($discussionEnabled) {
+        if ([string]::IsNullOrWhiteSpace($config.Discussion.CategoryId)) {
+            Write-Log "Discussion投稿が有効ですが、カテゴリIDが指定されていません。" -Level ERROR
+            exit 1
+        }
+
+        if ([string]::IsNullOrWhiteSpace($config.Discussion.BodyTemplate)) {
+            Write-Log "Discussion投稿が有効ですが、本文テンプレートのパスが指定されていません。" -Level ERROR
+            exit 1
+        }
+    }
+
     $GitHubRepo = Get-GitHubRepositoryFromGit -StartPath $scriptDir
     
     Write-Log "========================================" -Level INFO
@@ -380,8 +531,12 @@ try {
     Write-Log "AppName: $AppName" -Level INFO
     Write-Log "ResourceGroup: $ResourceGroup" -Level INFO
     Write-Log "GitHubRepo: $GitHubRepo (detected from git)" -Level INFO
+    Write-Log ("招待リンク有効期限: {0} 時間" -f $InvitationExpirationInHours) -Level INFO
     if ($DryRun) {
         Write-Log "実行モード: ドライラン（変更は適用されません）" -Level WARNING
+    }
+    if ($discussionEnabled) {
+        Write-Log "Discussion投稿: 有効" -Level INFO
     }
     Write-Log "========================================" -Level INFO
     
@@ -502,7 +657,7 @@ try {
     if ($usersToAdd.Count -gt 0) {
         Write-Log "ユーザーを追加中..." -Level INFO
         foreach ($user in $usersToAdd) {
-            $result = Add-AzureStaticWebAppUser -AppName $AppName -ResourceGroup $ResourceGroup -UserName $user
+            $result = Add-AzureStaticWebAppUser -AppName $AppName -ResourceGroup $ResourceGroup -UserName $user -InvitationExpiresInHours $InvitationExpirationInHours
             if ($result.Success) {
                 $successCount++
                 if ($result.InvitationUrl) {

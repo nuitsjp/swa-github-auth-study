@@ -28,7 +28,8 @@ function Write-Log {
 # 設定ファイルの読み込み
 function Get-Configuration {
     param(
-        [string]$ConfigPath = "config.json"
+        [string]$ConfigPath = "config.json",
+        [switch]$Optional
     )
     
     # 相対パスの場合は、呼び出し元のスクリプトのディレクトリまたはカレントディレクトリからの相対パスとして解決
@@ -48,6 +49,11 @@ function Get-Configuration {
     
     # 設定ファイルが存在しない場合
     if (-not (Test-Path $configFile)) {
+        if ($Optional) {
+            Write-Log "設定ファイルが見つかりません: $configFile。引数からの設定を試みます。" -Level INFO
+            return $null
+        }
+
         Write-Log "設定ファイルが見つかりません: $configFile" -Level ERROR
         Write-Log "config.json.template をコピーして config.json を作成してください" -Level ERROR
         throw "設定ファイルが見つかりません"

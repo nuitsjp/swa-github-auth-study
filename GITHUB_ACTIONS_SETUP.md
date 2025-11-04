@@ -34,6 +34,14 @@ jobs:
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       DRY_RUN_INPUT: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.dry_run || 'false' }}
+      STATIC_WEB_APP_NAME: ${{ secrets.AZURE_STATIC_WEB_APP_NAME }}
+      RESOURCE_GROUP: ${{ secrets.AZURE_RESOURCE_GROUP }}
+      SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      DISCUSSION_ENABLED: ${{ secrets.SWA_DISCUSSION_ENABLED }}
+      DISCUSSION_CATEGORY_ID: ${{ secrets.SWA_DISCUSSION_CATEGORY_ID }}
+      DISCUSSION_TITLE: ${{ secrets.SWA_DISCUSSION_TITLE }}
+      DISCUSSION_BODY_TEMPLATE: ${{ secrets.SWA_DISCUSSION_BODY_TEMPLATE }}
+      INVITATION_EXPIRES_HOURS: ${{ secrets.SWA_INVITATION_EXPIRES_HOURS }}
 
     steps:
       - name: Ensure GITHUB_TOKEN is available
@@ -63,26 +71,85 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Configure dry-run mode
-        shell: pwsh
-        run: |
-          $configPath = "config.json"
-          $config = Get-Content $configPath -Raw | ConvertFrom-Json
-          $config.sync.dryRun = ($env:DRY_RUN_INPUT -eq 'true')
-          $config | ConvertTo-Json -Depth 10 | Set-Content $configPath -Encoding utf8
-
       - name: Sync Static Web App users
         shell: pwsh
         run: |
-          & "$PWD/scripts/Sync-SwaUsers.ps1"
-```
+          if ([string]::IsNullOrWhiteSpace($env:STATIC_WEB_APP_NAME)) {
+              Write-Error "AZURE_STATIC_WEB_APP_NAME secret is required."
+              exit 1
+          }
+          if ([string]::IsNullOrWhiteSpace($env:RESOURCE_GROUP)) {
+              Write-Error "AZURE_RESOURCE_GROUP secret is required."
+              exit 1
+          }
 
-**注意**: `config.json` をリポジトリにコミットし、Azure Static Web App 名やリソースグループ名を記載しておく必要があります。
-機密情報は含まれないため、パブリックリポジトリでも安全に管理できます。
+          $params = @()
+          $params += @("-StaticWebAppName", $env:STATIC_WEB_APP_NAME)
+          $params += @("-ResourceGroup", $env:RESOURCE_GROUP)
+
+          if (-not [string]::IsNullOrWhiteSpace($env:SUBSCRIPTION_ID)) {
+              $params += @("-SubscriptionId", $env:SUBSCRIPTION_ID)
+          }
+
+          try {
+              $dryRun = [System.Convert]::ToBoolean($env:DRY_RUN_INPUT)
+          }
+          catch {
+              Write-Warning "Invalid dry_run input '$($env:DRY_RUN_INPUT)'. Falling back to false."
+              $dryRun = $false
+          }
+          $params += @("-DryRun", $dryRun)
+
+          if (-not [string]::IsNullOrWhiteSpace($env:DISCUSSION_ENABLED)) {
+              try {
+                  $discussionEnabled = [System.Convert]::ToBoolean($env:DISCUSSION_ENABLED)
+              }
+              catch {
+                  Write-Warning "Invalid SWA_DISCUSSION_ENABLED value: $($env:DISCUSSION_ENABLED)"
+                  $discussionEnabled = $false
+              }
+              $params += @("-DiscussionEnabled", $discussionEnabled)
+
+              if ($discussionEnabled -and [string]::IsNullOrWhiteSpace($env:DISCUSSION_CATEGORY_ID)) {
+                  Write-Error "SWA_DISCUSSION_CATEGORY_ID secret is required when SWA_DISCUSSION_ENABLED is true."
+                  exit 1
+              }
+              if ($discussionEnabled -and [string]::IsNullOrWhiteSpace($env:DISCUSSION_BODY_TEMPLATE) -and -not (Test-Path "$PWD/invitation-body-template.txt")) {
+                  Write-Error "SWA_DISCUSSION_BODY_TEMPLATE secret or default template file is required when SWA_DISCUSSION_ENABLED is true."
+                  exit 1
+              }
+          }
+
+          if (-not [string]::IsNullOrWhiteSpace($env:DISCUSSION_CATEGORY_ID)) {
+              $params += @("-DiscussionCategoryId", $env:DISCUSSION_CATEGORY_ID)
+          }
+          if (-not [string]::IsNullOrWhiteSpace($env:DISCUSSION_TITLE)) {
+              $params += @("-DiscussionTitle", $env:DISCUSSION_TITLE)
+          }
+
+          if (-not [string]::IsNullOrWhiteSpace($env:DISCUSSION_BODY_TEMPLATE)) {
+              $params += @("-DiscussionBodyTemplate", $env:DISCUSSION_BODY_TEMPLATE)
+          }
+          elseif (Test-Path "$PWD/invitation-body-template.txt") {
+              $params += @("-DiscussionBodyTemplate", "invitation-body-template.txt")
+          }
+
+          if (-not [string]::IsNullOrWhiteSpace($env:INVITATION_EXPIRES_HOURS)) {
+              $expires = 0
+              if ([int]::TryParse($env:INVITATION_EXPIRES_HOURS, [ref]$expires) -and $expires -gt 0) {
+                  $params += @("-InvitationExpiresInHours", $expires)
+              }
+              else {
+                  Write-Warning "Invalid SWA_INVITATION_EXPIRES_HOURS value: $env:INVITATION_EXPIRES_HOURS"
+              }
+          }
+
+          & "$PWD/scripts/Sync-SwaUsers.ps1" @params
+```
 
 スクリプトは、チェックアウトされたリポジトリの `origin` リモート (`${{ github.repository }}`) から GitHub リポジトリ名を自動検出します。ローカル・CI ともに `git remote get-url origin` が期待するGitHubリポジトリを指しているか必ず確認してください。`origin` が未設定、または GitHub 以外を指す場合はスクリプトがエラーで停止します。
 
-> ℹ️ `GITHUB_TOKEN` のワークフローパーミッションをリポジトリ設定で `Read and write` にしておくと、Discussions への投稿権限（`discussions: write`）が付与され、追加の PAT は不要です。
+> ℹ️ `GITHUB_TOKEN` のワークフローパーミッションをリポジトリ設定で `Read and write` にしておくと、Discussions への投稿権限（`discussions: write`）が付与されます。追加の PAT は不要です。
 
 ## 必要なGitHub Secretsの設定
 
@@ -111,10 +178,22 @@ az ad sp create-for-rbac --name "github-actions-swa-sync" --role contributor \
 
 このコマンドの出力をそのままシークレットに設定してください。
 
-### 2. config.json
+### 2. AZURE_STATIC_WEB_APP_NAME / AZURE_RESOURCE_GROUP / AZURE_SUBSCRIPTION_ID
 
-リポジトリにコミットされた `config.json` に、Azure Static Web App名とリソースグループ名を記載しておきます。
-CI 環境でも同じファイルが使用されるため、値の整合性を定期的に確認してください。
+- `AZURE_STATIC_WEB_APP_NAME`: 対象の Static Web App 名
+- `AZURE_RESOURCE_GROUP`: Static Web App が所属するリソースグループ名
+- `AZURE_SUBSCRIPTION_ID` (任意): サブスクリプション ID を指定したい場合に設定します
+
+### 3. Discussion 関連シークレット（任意）
+
+- `SWA_DISCUSSION_ENABLED`: `true` または `false`
+- `SWA_DISCUSSION_CATEGORY_ID`: Discussion カテゴリ ID（enabled が `true` の場合必須）
+- `SWA_DISCUSSION_TITLE`: Discussion タイトルテンプレート（`{username}` を置換可能）
+- `SWA_DISCUSSION_BODY_TEMPLATE`: Discussion 本文テンプレートのパス（リポジトリルートからの相対パスを推奨）
+
+### 4. 招待期限の調整（任意）
+
+- `SWA_INVITATION_EXPIRES_HOURS`: 招待リンクの有効期間（時間単位）
 
 ## cronスケジュールの例
 
@@ -137,14 +216,14 @@ CI 環境でも同じファイルが使用されるため、値の整合性を�
 
 ## ドライランモードでのテスト
 
-手動実行 (`Run workflow`) 時に `dry_run` 入力を `true` に切り替えると、ワークフローが `config.json` の `sync.dryRun` を自動的に `true` に更新して差分だけを確認します。スケジュール実行時は常に `false` が適用され、本番同期が実行されます。
+手動実行 (`Run workflow`) 時に `dry_run` 入力を `true` に切り替えると、ワークフローが `-DryRun $true` を指定し、差分のみを表示します。スケジュール実行時は常に `false` が適用され、本番同期が実行されます。
 
 ## 手動実行の方法
 
 1. GitHubリポジトリのActionsタブに移動
 2. "Sync Azure SWA Users"ワークフローを選択
 3. "Run workflow"ボタンをクリックし、必要に応じて `dry_run` を `true` に変更
-4. ブランチを選択して"Run workflow"を実行
+4. ブランチを選択して "Run workflow" を実行
 
 ## ログの確認
 
@@ -172,11 +251,11 @@ CI 環境でも同じファイルが使用されるため、値の整合性を�
 
 ### "Resource not found"
 
-**原因:** `config.json` 内の Static Web App 名またはリソースグループ名が正しくない
+**原因:** `AZURE_STATIC_WEB_APP_NAME` または `AZURE_RESOURCE_GROUP` が正しく設定されていない
 
 **解決方法:**
-- Azure Portalで正しいリソース名を確認
-- `config.json` を修正して再度実行
+- シークレット値が正しいか確認
+- Static Web App が削除されていないか Azure Portal で確認
 
 ## セキュリティのベストプラクティス
 

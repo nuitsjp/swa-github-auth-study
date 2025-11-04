@@ -31,11 +31,11 @@ Azure Static Web App の組み込み認証を GitHub リポジトリのコラボ
    git clone https://github.com/nuitsjp/swa-github-auth-study.git
    cd swa-github-auth-study
    ```
-2. 設定ファイルを作成します。
+2. 設定ファイルを作成します（ローカル実行で毎回同じ設定を使う場合）。
    ```bash
    cp config.json.template config.json
    ```
-3. `config.json` を編集し、以下の項目を入力します。
+3. `config.json` を編集し、以下の項目を入力します。GitHub Actions ではシークレットから値を渡すため、このファイルがなくても実行できます。
 
    | セクション | キー | 説明 |
    |------------|------|------|
@@ -51,7 +51,7 @@ Azure Static Web App の組み込み認証を GitHub リポジトリのコラボ
 
    > メモ: `invitationSettings.expiresInHours` は現行の同期スクリプトでは使用されず、招待期限は固定で 168 時間です。
 
-4. Discussion テンプレートを利用する場合は、`bodyTemplate` に指定したファイル内で `{{USERNAME}}` と `{{INVITATION_URL}}` を使って差し込みができます。
+4. Discussion テンプレートを利用する場合は、`bodyTemplate` に指定したファイル内で `{{USERNAME}}` と `{{INVITATION_URL}}` を使って差し込みができます。CI では `-DiscussionBodyTemplate` 引数を経由して同じファイル名を指定できます。
 
 ## 実行方法
 
@@ -61,6 +61,16 @@ Azure Static Web App の組み込み認証を GitHub リポジトリのコラボ
    pwsh -File .\scripts\Sync-SwaUsers.ps1
    ```
    差分がない場合は即時終了し、差分がある場合は追加・削除候補をログ出力します（この段階では Azure 上の変更は行われません）。
+
+   引数で設定を上書きしたい場合は次のように実行できます。
+   ```powershell
+   pwsh -File .\scripts\Sync-SwaUsers.ps1 `
+     -StaticWebAppName 'my-static-web-app' `
+     -ResourceGroup 'rg-my-static-web-app' `
+     -DryRun $true `
+     -DiscussionEnabled $false
+   ```
+   引数が指定されている項目は config.json よりも優先されます。
 3. 変更内容に問題がなければ `sync.dryRun` を `false` に戻し、同じコマンドを再実行します。スクリプトは以下を順に実行します。
    - GitHub コラボレーターの再取得
    - `github_collaborator` ロールを持つ Azure ユーザーとの突合
@@ -86,6 +96,8 @@ Azure Static Web App の組み込み認証を GitHub リポジトリのコラボ
 ## GitHub Actions による自動化
 
 `.github/workflows/azure-static-web-apps-calm-hill-0f33a0910.yml` で同じスクリプトを定期実行できます。セットアップ手順や必要なシークレットは `GITHUB_ACTIONS_SETUP.md` を参照してください。`scripts/Initialize-GithubSecrets.ps1` を使うとローカルから必要なシークレットをまとめて登録できます。
+
+GitHub Actions では `AZURE_STATIC_WEB_APP_NAME` や `AZURE_RESOURCE_GROUP` などをシークレットとして渡し、ワークフローから `Sync-SwaUsers.ps1` に引数で注入します。リポジトリ内の `config.json` がなくても実行できます。
 
 ## トラブルシューティング
 
