@@ -10,6 +10,9 @@
   "invitationSettings": {
     "expiresInHours": 168
   },
+  "sync": {
+    "dryRun": false
+  },
   "discussion": {
     "enabled": true,
     "categoryId": "your-discussion-category-id",

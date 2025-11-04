@@ -22,15 +22,13 @@ gh auth status
 
 ## テスト1: ドライランモード
 
-実際の変更を適用せずに、スクリプトの動作を確認します。
+設定を変更せずに実行結果だけを確認します。
+
+1. `config.json` の `sync.dryRun` を `true` に設定します。
+2. 以下のコマンドを実行します。
 
 ```powershell
-# パラメータを環境に合わせて変更してください
-$AppName = "your-static-web-app-name"
-$ResourceGroup = "your-resource-group"
-
-# ドライラン実行
-.\sync-swa-users.ps1 -AppName $AppName -ResourceGroup $ResourceGroup -DryRun
+pwsh -File .\scripts\Sync-SwaUsers.ps1
 ```
 
 **期待される結果:**
@@ -42,30 +40,37 @@ $ResourceGroup = "your-resource-group"
 
 ## テスト2: ヘルプの表示
 
-スクリプトのヘルプを表示して、パラメータの説明を確認します。
+スクリプトのヘルプを表示して、概要と使用例を確認します。
 
 ```powershell
-Get-Help .\sync-swa-users.ps1 -Full
+Get-Help .\scripts\Sync-SwaUsers.ps1 -Full
 ```
 
-## テスト3: パラメータの検証
+## テスト3: 必須設定の検証
 
-必須パラメータが正しく機能することを確認します。
+`config.json` が存在しない場合に適切にエラーになるか確認します。
 
 ```powershell
-# パラメータなしで実行（エラーになるはず）
-.\sync-swa-users.ps1
-
-# 不足しているパラメータがあれば指摘されます
+Rename-Item -Path .\config.json -NewName config.json.bak
+pwsh -File .\scripts\Sync-SwaUsers.ps1
+# 実行後は必ず元に戻してください
+Rename-Item -Path .\config.json.bak -NewName config.json
 ```
+
+**期待される結果:**
+- 「設定ファイルが見つかりません」というエラーが表示される
+- スクリプトが終了コード1で停止する
 
 ## テスト4: 実際の同期（注意して実行）
 
 ⚠️ **警告**: このテストは実際にAzure Static Web Appのユーザー設定を変更します。
 
+1. ドライランで結果を確認済みであることを前提とします。
+2. `config.json` の `sync.dryRun` を `false` に設定します。
+3. 以下のコマンドを実行します。
+
 ```powershell
-# 必ずドライランで確認してから実行してください
-.\sync-swa-users.ps1 -AppName $AppName -ResourceGroup $ResourceGroup
+pwsh -File .\scripts\Sync-SwaUsers.ps1
 ```
 
 **期待される結果:**
@@ -76,21 +81,30 @@ Get-Help .\sync-swa-users.ps1 -Full
 
 ## テスト5: エラーハンドリング
 
-意図的に間違ったパラメータを指定して、エラーハンドリングを確認します。
+設定値を意図的に誤らせて、エラーハンドリングを確認します。
 
 > ⚠️ 次の例では`origin`リモートを書き換えるため、必ず検証用クローンで実行し、最後に元のURLへ戻してください。
 
 ```powershell
-# 存在しないリポジトリを指定
-# originリモートが誤っている場合の挙動を確認
+# 起点となるリモートURLを保存
 $originalRemote = git remote get-url origin
+
+# 存在しないリポジトリを指すように変更
 git remote set-url origin git@github.com:nonexistent/repo.git
-./sync-swa-users.ps1 -AppName $AppName -ResourceGroup $ResourceGroup -DryRun
-# テスト後は必ず元のURLに戻してください
+pwsh -File .\scripts\Sync-SwaUsers.ps1
+
+# テスト後は必ず元に戻す
 git remote set-url origin $originalRemote
 
-# 存在しないStatic Web Appを指定
-.\sync-swa-users.ps1 -AppName "nonexistent-app" -ResourceGroup $ResourceGroup -DryRun
+# 存在しないStatic Web App名を設定
+(Get-Content .\config.json -Raw) |
+  ConvertFrom-Json |
+  ForEach-Object { $_.azure.staticWebAppName = "nonexistent-app"; $_ } |
+  ConvertTo-Json -Depth 5 |
+  Set-Content .\config.json
+
+pwsh -File .\scripts\Sync-SwaUsers.ps1
+# 実運用の値に戻すことを忘れないでください
 ```
 
 **期待される結果:**
@@ -104,7 +118,7 @@ git remote set-url origin $originalRemote
 az logout
 
 # スクリプトを実行（認証エラーになるはず）
-.\sync-swa-users.ps1 -AppName $AppName -ResourceGroup $ResourceGroup -DryRun
+pwsh -File .\scripts\Sync-SwaUsers.ps1
 
 # 再度ログイン
 az login

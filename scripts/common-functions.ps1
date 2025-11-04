@@ -28,8 +28,7 @@ function Write-Log {
 # 設定ファイルの読み込み
 function Get-Configuration {
     param(
-        [string]$ConfigPath = "config.json",
-        [hashtable]$Overrides = @{}
+        [string]$ConfigPath = "config.json"
     )
     
     # 相対パスの場合は、呼び出し元のスクリプトのディレクトリまたはカレントディレクトリからの相対パスとして解決
@@ -49,27 +48,6 @@ function Get-Configuration {
     
     # 設定ファイルが存在しない場合
     if (-not (Test-Path $configFile)) {
-        # オーバーライドがすべて提供されている場合は警告のみ
-    $requiredKeys = @("SubscriptionId", "ResourceGroup", "StaticWebAppName")
-        $allProvided = $requiredKeys | ForEach-Object { $Overrides.ContainsKey($_) } | Where-Object { $_ -eq $false } | Measure-Object | Select-Object -ExpandProperty Count
-        
-        if ($allProvided -eq 0) {
-            Write-Log "設定ファイルが見つかりません。コマンドライン引数を使用します: $configFile" -Level WARNING
-            return @{
-                Azure = @{
-                    SubscriptionId = $Overrides.SubscriptionId
-                    ResourceGroup = $Overrides.ResourceGroup
-                    StaticWebAppName = $Overrides.StaticWebAppName
-                }
-                ServicePrincipal = @{
-                    Name = if ($Overrides.ContainsKey("ServicePrincipalName")) { $Overrides.ServicePrincipalName } else { "GitHub-Actions-SWA-Sync" }
-                }
-                InvitationSettings = @{
-                    ExpiresInHours = if ($Overrides.ContainsKey("InvitationExpiresInHours")) { $Overrides.InvitationExpiresInHours } else { 168 }
-                }
-            }
-        }
-        
         Write-Log "設定ファイルが見つかりません: $configFile" -Level ERROR
         Write-Log "config.json.template をコピーして config.json を作成してください" -Level ERROR
         throw "設定ファイルが見つかりません"
@@ -101,23 +79,15 @@ function Get-Configuration {
                 Title = if ($config.PSObject.Properties.Name -contains "discussion") { $config.discussion.title } else { "Azure Static Web App への招待: {username}" }
                 BodyTemplate = if ($config.PSObject.Properties.Name -contains "discussion") { $config.discussion.bodyTemplate } else { "" }
             }
+            Sync = @{
+                DryRun = $false
+            }
         }
         
-        # コマンドライン引数でオーバーライド
-        if ($Overrides.ContainsKey("SubscriptionId")) {
-            $configHash.Azure.SubscriptionId = $Overrides.SubscriptionId
-        }
-        if ($Overrides.ContainsKey("ResourceGroup")) {
-            $configHash.Azure.ResourceGroup = $Overrides.ResourceGroup
-        }
-        if ($Overrides.ContainsKey("StaticWebAppName")) {
-            $configHash.Azure.StaticWebAppName = $Overrides.StaticWebAppName
-        }
-        if ($Overrides.ContainsKey("ServicePrincipalName")) {
-            $configHash.ServicePrincipal.Name = $Overrides.ServicePrincipalName
-        }
-        if ($Overrides.ContainsKey("InvitationExpiresInHours")) {
-            $configHash.InvitationSettings.ExpiresInHours = $Overrides.InvitationExpiresInHours
+        if ($config.PSObject.Properties.Name -contains "sync" -and $null -ne $config.sync) {
+            if ($config.sync.PSObject.Properties.Name -contains "dryRun") {
+                $configHash.Sync.DryRun = [bool]$config.sync.dryRun
+            }
         }
         
         return $configHash

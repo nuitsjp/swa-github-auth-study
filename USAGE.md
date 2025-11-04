@@ -216,55 +216,48 @@ gh api graphql -f query='
 
 ## 使用方法
 
-### 設定ファイルを使う方法（推奨）
+### 1. 設定ファイルを準備する
 
-設定ファイル `config.json` を作成していれば、引数なしで実行できます：
+- リポジトリルートの `config.json` に Azure Static Web App の情報を記載します。
+- `sync.dryRun` を `true` にするとプレビューのみ実行されます。同期を適用するときは `false` に戻します。
+- 例:
 
-```powershell
-.\scripts\sync-swa-users.ps1
+```jsonc
+{
+  "azure": {
+    "subscriptionId": "your-subscription-id",
+    "resourceGroup": "your-resource-group",
+    "staticWebAppName": "your-static-web-app-name"
+  },
+  "servicePrincipal": {
+    "name": "GitHub-Actions-SWA-Sync"
+  },
+  "sync": {
+    "dryRun": false
+  }
+}
 ```
 
-特定の設定ファイルを指定する場合：
+### 2. 同期スクリプトを実行する
 
 ```powershell
-.\scripts\sync-swa-users.ps1 -ConfigPath "custom-config.json"
+pwsh -File .\scripts\Sync-SwaUsers.ps1
 ```
 
-設定ファイルの値をコマンドライン引数で上書きする場合：
+スクリプトは `config.json` の値と Git の `origin` から対象リポジトリを検出し、ログに概要を表示します。
 
-```powershell
-.\scripts\sync-swa-users.ps1 -AppName "another-app"
-```
+### 3. ドライランを実施する
 
-### 基本的な使い方（設定ファイルなし）
-
-```powershell
-.\scripts\sync-swa-users.ps1 -AppName "your-app-name" -ResourceGroup "your-resource-group"
-```
-
-### ドライランモード（変更を適用せずに確認）
-
-```powershell
-.\scripts\sync-swa-users.ps1 -DryRun
-```
-
-### パラメータ
-
-| パラメータ | 必須 | 説明 | 例 |
-|-----------|------|------|-----|
-| `AppName` | △ | Azure Static Web App名（設定ファイルから読み込み可能） | `my-static-web-app` |
-| `ResourceGroup` | △ | Azureリソースグループ名（設定ファイルから読み込み可能） | `my-resource-group` |
-| `ConfigPath` | × | 設定ファイルのパス（デフォルト: `config.json`） | `custom-config.json` |
-| `DryRun` | × | 変更を適用せずに実行結果をプレビュー | （スイッチパラメータ） |
-
-**注意**: △ = `config.json` が存在すればオプション、そうでなければ必須
+1. `config.json` の `sync.dryRun` を `true` に変更します。
+2. `pwsh -File .\scripts\Sync-SwaUsers.ps1` を実行します。
+3. 結果を確認したら `sync.dryRun` を `false` に戻して同期を適用します。
 
 ## 実行例
 
-### 例1: 初回同期
+### 例1: 初回同期（`sync.dryRun: false`）
 
 ```powershell
-PS> .\sync-swa-users.ps1 -AppName "my-swa" -ResourceGroup "my-rg"
+PS> pwsh -File .\scripts\Sync-SwaUsers.ps1
 
 [2025-11-03 16:00:00] [INFO] ========================================
 [2025-11-03 16:00:00] [INFO] Azure Static Web App ユーザー同期スクリプト
@@ -305,10 +298,10 @@ PS> .\sync-swa-users.ps1 -AppName "my-swa" -ResourceGroup "my-rg"
 [2025-11-03 16:00:08] [INFO] ========================================
 ```
 
-### 例2: ドライラン
+### 例2: ドライラン（`sync.dryRun: true`）
 
 ```powershell
-PS> .\sync-swa-users.ps1 -AppName "my-swa" -ResourceGroup "my-rg" -DryRun
+PS> pwsh -File .\scripts\Sync-SwaUsers.ps1
 
 [2025-11-03 16:05:00] [INFO] ========================================
 [2025-11-03 16:05:00] [INFO] Azure Static Web App ユーザー同期スクリプト
@@ -325,10 +318,10 @@ PS> .\sync-swa-users.ps1 -AppName "my-swa" -ResourceGroup "my-rg" -DryRun
 [2025-11-03 16:05:04] [INFO] ========================================
 ```
 
-### 例3: 変更なし
+### 例3: 変更なし（`sync.dryRun: false`）
 
 ```powershell
-PS> .\sync-swa-users.ps1 -AppName "my-swa" -ResourceGroup "my-rg"
+PS> pwsh -File .\scripts\Sync-SwaUsers.ps1
 
 ...
 [2025-11-03 16:10:04] [INFO] 追加対象ユーザー数: 0
@@ -378,7 +371,7 @@ PS> .\sync-swa-users.ps1 -AppName "my-swa" -ResourceGroup "my-rg"
 権限の変更があった際に手動で実行：
 
 ```powershell
-.\sync-swa-users.ps1 -AppName "your-app-name" -ResourceGroup "your-resource-group"
+pwsh -File .\scripts\Sync-SwaUsers.ps1
 ```
 
 ### 定期実行（Windowsタスクスケジューラ）
@@ -393,11 +386,11 @@ PS> .\sync-swa-users.ps1 -AppName "my-swa" -ResourceGroup "my-rg"
    - 新規トリガーを追加（例: 毎日1回実行）
 
 5. 「操作」タブ:
-   - プログラム/スクリプト: `powershell.exe`
-   - 引数の追加:
-     ```
-  -ExecutionPolicy Bypass -File "C:\path\to\sync-swa-users.ps1" -AppName "your-app-name" -ResourceGroup "your-resource-group"
-     ```
+- プログラム/スクリプト: `powershell.exe`
+- 引数の追加:
+  ```
+  -ExecutionPolicy Bypass -File "C:\path\to\repo\scripts\Sync-SwaUsers.ps1"
+  ```
 
 6. タスクを保存
 
@@ -430,14 +423,14 @@ jobs:
       
       - name: Sync Users
         run: |
-          .\sync-swa-users.ps1 -AppName "${{ secrets.SWA_APP_NAME }}" -ResourceGroup "${{ secrets.SWA_RESOURCE_GROUP }}"
+          pwsh -File .\scripts\Sync-SwaUsers.ps1
 ```
 
 **必要なシークレット:**
 - `AZURE_CREDENTIALS`: Azureサービスプリンシパルの認証情報
 - `GH_PAT`: GitHub Personal Access Token（repo権限）
-- `SWA_APP_NAME`: Static Web App名
-- `SWA_RESOURCE_GROUP`: リソースグループ名
+
+Static Web App 名やリソースグループは `config.json` から読み込まれるため、CI 環境でも同じファイルを配置してください。
 
 ## トラブルシューティング
 

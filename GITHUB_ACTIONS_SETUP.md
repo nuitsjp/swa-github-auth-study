@@ -44,9 +44,7 @@ jobs:
       # ユーザー同期スクリプトを実行
       - name: Sync Users
         run: |
-          .\scripts\sync-swa-users.ps1 `
-            -AppName "${{ secrets.SWA_APP_NAME }}" `
-            -ResourceGroup "${{ secrets.SWA_RESOURCE_GROUP }}"
+          .\scripts\Sync-SwaUsers.ps1
         shell: pwsh
 
 リポジトリはジョブ内でチェックアウトされたGitリポジトリの`origin`リモート（つまり`${{ github.repository }}`）から自動的に解決されます。
@@ -62,20 +60,8 @@ jobs:
         shell: pwsh
 ```
 
-### 設定ファイルを使用する場合（推奨）
-
-リポジトリに `config.json` を配置しておくことで、シークレットの数を減らすことができます：
-
-```yaml
-      # ユーザー同期スクリプトを実行（設定ファイル使用）
-      - name: Sync Users
-        run: |
-          .\scripts\sync-swa-users.ps1
-        shell: pwsh
-```
-
-**注意**: この方法を使う場合、`config.json` をリポジトリにコミットする必要があります。
-機密情報は含まれないため、パブリックリポジトリでも安全です。
+**注意**: `config.json` をリポジトリにコミットし、Azure Static Web App 名やリソースグループ名を記載しておく必要があります。
+機密情報は含まれないため、パブリックリポジトリでも安全に管理できます。
 
 ## 必要なGitHub Secretsの設定
 
@@ -120,13 +106,10 @@ GitHub Personal Access Token
 4. トークンを生成してコピー
 5. GitHub Secretsに設定
 
-### 3. SWA_APP_NAME
+### 3. config.json
 
-Azure Static Web App名（例: `my-static-web-app`）
-
-### 4. SWA_RESOURCE_GROUP
-
-Azureリソースグループ名（例: `my-resource-group`）
+リポジトリにコミットされた `config.json` に、Azure Static Web App名とリソースグループ名を記載しておきます。
+CI 環境でも同じファイルが使用されるため、値の整合性を定期的に確認してください。
 
 ## cronスケジュールの例
 
@@ -149,15 +132,12 @@ Azureリソースグループ名（例: `my-resource-group`）
 
 ## ドライランモードでのテスト
 
-本番環境で実行する前に、ドライランモードでテストすることを推奨します：
+本番環境で実行する前に、`config.json` の `sync.dryRun` を `true` に設定してテストすることを推奨します：
 
 ```yaml
       - name: Sync Users (Dry Run)
         run: |
-          .\sync-swa-users.ps1 `
-            -AppName "${{ secrets.SWA_APP_NAME }}" `
-            -ResourceGroup "${{ secrets.SWA_RESOURCE_GROUP }}" `
-            -DryRun
+          .\scripts\Sync-SwaUsers.ps1
         shell: pwsh
 ```
 
@@ -194,11 +174,11 @@ Azureリソースグループ名（例: `my-resource-group`）
 
 ### "Resource not found"
 
-**原因:** SWA_APP_NAMEまたはSWA_RESOURCE_GROUPが間違っている
+**原因:** `config.json` 内の Static Web App 名またはリソースグループ名が正しくない
 
 **解決方法:**
 - Azure Portalで正しいリソース名を確認
-- シークレットの値を更新
+- `config.json` を修正して再度実行
 
 ## セキュリティのベストプラクティス
 

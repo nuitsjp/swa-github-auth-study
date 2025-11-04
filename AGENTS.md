@@ -11,9 +11,9 @@
 
 ## Build, Test, and Development Commands
 - Authenticate once per session with `az login` and `gh auth login` to unblock all CLI calls.
-- Run the sync end-to-end: `pwsh -File .\sync-swa-users.ps1 -AppName "your-app" -ResourceGroup "rg-name"` (GitHubリポジトリはgitのoriginから検出)。
+- Configure `config.json`, then run the sync end-to-end: `pwsh -File .\scripts\Sync-SwaUsers.ps1` (GitHubリポジトリはgitのoriginから検出)。
 - Double-check the active repository with `git remote get-url origin` before executing the scripts.
-- Validate planned changes safely with `pwsh -File .\sync-swa-users.ps1 ... -DryRun`, which skips mutations but surfaces discrepancies.
+- Validate planned changes safely by setting `sync.dryRun` to `true` in `config.json` and running the same command, which skips mutations but surfaces discrepancies.
 - When adjusting automation, mirror the existing workflow structure and document triggers in `GITHUB_ACTIONS_SETUP.md`.
 
 ## Coding Style & Naming Conventions
@@ -24,7 +24,7 @@
 
 ## Testing Guidelines
 - Follow the walkthroughs in `TEST_EXAMPLES.md` when introducing new scenarios; add concise notes for each additional case.
-- Always execute a `-DryRun` before real syncs, then re-run with live writes targeting a non-production Static Web App.
+- Always execute a dry run by toggling `sync.dryRun` to `true` before real syncs, then revert to `false` and re-run against a non-production Static Web App.
 - Capture Azure and GitHub CLI error output when reporting bugs, since the script exits on failed prerequisites.
 
 ## Commit & Pull Request Guidelines
@@ -34,6 +34,6 @@
 - Before requesting review, confirm CI passes, update `IMPLEMENTATION_CHECKLIST.md` if relevant, and note any manual deployment steps.
 
 ## Security & Configuration Tips
-- Never hard-code credentials; rely on `az login` sessions locally and GitHub secrets (`AZURE_CREDENTIALS`, `GH_PAT`, `SWA_*`) in automation.
+- Never hard-code credentials; rely on `az login` sessions locally and GitHub secrets (`AZURE_CREDENTIALS`, `GH_PAT`) in automation.
 - When sharing examples, redact user names and app identifiers, matching the placeholders already used in the docs.
 - Rotate personal access tokens regularly and log new secret names in `GITHUB_ACTIONS_SETUP.md`.

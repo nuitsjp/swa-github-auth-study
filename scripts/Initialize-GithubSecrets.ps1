@@ -6,6 +6,7 @@
     Azure Service Principalを作成し、必要なシークレット（AZURE_CREDENTIALS、AZURE_STATIC_WEB_APP_NAME、
     AZURE_RESOURCE_GROUP）をGitHubリポジトリに自動的に登録します。
     対象のGitHubリポジトリは、スクリプトを実行したGitリポジトリの`origin`リモートから自動検出されます。
+    設定値はリポジトリルートの config.json から読み込みます。
 
     注意: このスクリプトを実行するには、GitHub Personal Access Tokenに以下の権限が必要です：
     - Classic token: 'repo' と 'workflow' スコープ
@@ -13,31 +14,8 @@
 
     ワークフローは自動的にGITHUB_TOKENを使用するため、GH_TOKENシークレットは不要です。
 
-.PARAMETER SubscriptionId
-    AzureサブスクリプションID
-
-.PARAMETER ResourceGroup
-    Azureリソースグループ名
-
-.PARAMETER StaticWebAppName
-    Azure Static Web App名
-
-.PARAMETER GitHubToken
-    GitHub Personal Access Token（repo権限が必要）。指定しない場合は対話的に入力を求められます。
-
-.PARAMETER ServicePrincipalName
-    作成するService Principal名（デフォルト: GitHub-Actions-SWA-Sync）
-
 .EXAMPLE
-    .\setup-github-secrets.ps1 -SubscriptionId "12345678-1234-1234-1234-123456789012" `
-                                -ResourceGroup "my-resource-group" `
-                                -StaticWebAppName "my-static-web-app"
-
-.EXAMPLE
-    .\setup-github-secrets.ps1 -SubscriptionId "12345678-1234-1234-1234-123456789012" `
-                                -ResourceGroup "my-resource-group" `
-                                -StaticWebAppName "my-static-web-app" `
-                                -GitHubToken "ghp_xxxxxxxxxxxx"
+    pwsh -File .\scripts\Initialize-GithubSecrets.ps1
 
 .NOTES
     必要な権限:
@@ -54,27 +32,6 @@
     3. GitHub Personal Access Tokenの取得または検証
     4. GitHubリポジトリへのシークレット登録
 #>
-
-[CmdletBinding()]
-param(
-    [Parameter(Mandatory=$false)]
-    [string]$SubscriptionId,
-
-    [Parameter(Mandatory=$false)]
-    [string]$ResourceGroup,
-
-    [Parameter(Mandatory=$false)]
-    [string]$StaticWebAppName,
-
-    [Parameter(Mandatory=$false)]
-    [string]$GitHubToken,
-
-    [Parameter(Mandatory=$false)]
-    [string]$ServicePrincipalName,
-
-    [Parameter(Mandatory=$false)]
-    [string]$ConfigPath = "config.json"
-)
 
 # エラー発生時に停止
 $ErrorActionPreference = "Stop"
@@ -315,13 +272,7 @@ function Set-GitHubSecret {
 # メイン処理
 try {
     # 設定ファイルを読み込む
-    $overrides = @{}
-    if ($SubscriptionId) { $overrides.SubscriptionId = $SubscriptionId }
-    if ($ResourceGroup) { $overrides.ResourceGroup = $ResourceGroup }
-    if ($StaticWebAppName) { $overrides.StaticWebAppName = $StaticWebAppName }
-    if ($ServicePrincipalName) { $overrides.ServicePrincipalName = $ServicePrincipalName }
-    
-    $config = Get-Configuration -ConfigPath $ConfigPath -Overrides $overrides
+    $config = Get-Configuration
     
     # 設定から値を取得
     $SubscriptionId = $config.Azure.SubscriptionId
@@ -376,22 +327,20 @@ try {
     Write-Log "========================================" -Level INFO
 
     # 2. GitHub認証の確認と取得
-    $useExplicitToken = $false
     $githubToken = $null
 
     # まずgh CLIの認証状態を確認
-    if (-not $GitHubToken -and (Test-GitHubCLIAuth -Repo $GitHubRepo)) {
+    if (Test-GitHubCLIAuth -Repo $GitHubRepo) {
         Write-Log "GitHub CLIの既存認証を使用します" -Level SUCCESS
     }
     else {
-        # gh CLIが未認証の場合、またはトークンが明示的に提供された場合
-        $githubToken = Get-GitHubToken -ProvidedToken $GitHubToken
+        # gh CLIが未認証の場合は、トークンを入力してもらう
+        $githubToken = Get-GitHubToken
         
         if (-not (Test-GitHubTokenAccess -Token $githubToken -Repo $GitHubRepo)) {
             Write-Log "GitHub Tokenの検証に失敗しました" -Level ERROR
             exit 1
         }
-        $useExplicitToken = $true
     }
 
     Write-Log "========================================" -Level INFO

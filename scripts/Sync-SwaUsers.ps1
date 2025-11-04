@@ -6,21 +6,10 @@
     GitHubリポジトリでpush権限を持つユーザーを取得し、Azure Static Web Appの認証済みユーザーと同期します。
     GitHubにあってAzureにないユーザーは追加し、Azureにのみ存在するユーザーは削除します。
     対象となるGitHubリポジトリは、スクリプトを実行したGitリポジトリの`origin`リモートから自動検出されます。
-
-.PARAMETER AppName
-    Azure Static Web App名
-
-.PARAMETER ResourceGroup
-    Azureリソースグループ名
-
-.PARAMETER DryRun
-    変更を適用せずに実行結果をプレビューします
+    設定値はリポジトリルートの config.json から読み込みます。
 
 .EXAMPLE
-    .\sync-swa-users.ps1 -AppName "my-static-web-app" -ResourceGroup "my-resource-group"
-
-.EXAMPLE
-    .\sync-swa-users.ps1 -AppName "my-static-web-app" -ResourceGroup "my-resource-group" -DryRun
+    pwsh -File .\scripts\Sync-SwaUsers.ps1
 
 .NOTES
     必要な権限:
@@ -31,21 +20,6 @@
     - Azure CLI (az) のインストールと認証 (az login)
     - GitHub CLI (gh) のインストールと認証 (gh auth login)
 #>
-
-[CmdletBinding()]
-param(
-    [Parameter(Mandatory=$false)]
-    [string]$AppName,
-    
-    [Parameter(Mandatory=$false)]
-    [string]$ResourceGroup,
-    
-    [Parameter(Mandatory=$false)]
-    [string]$ConfigPath = "config.json",
-    
-    [Parameter(Mandatory=$false)]
-    [switch]$DryRun
-)
 
 # エラー発生時に停止
 $ErrorActionPreference = "Stop"
@@ -273,15 +247,12 @@ function Remove-AzureStaticWebAppUser {
 # メイン処理
 try {
     # 設定ファイルを読み込む
-    $overrides = @{}
-    if ($AppName) { $overrides.StaticWebAppName = $AppName }
-    if ($ResourceGroup) { $overrides.ResourceGroup = $ResourceGroup }
-    
-    $config = Get-Configuration -ConfigPath $ConfigPath -Overrides $overrides
+    $config = Get-Configuration
     
     # 設定から値を取得
     $AppName = $config.Azure.StaticWebAppName
     $ResourceGroup = $config.Azure.ResourceGroup
+    $DryRun = [bool]$config.Sync.DryRun
     $GitHubRepo = Get-GitHubRepositoryFromGit -StartPath $scriptDir
     
     Write-Log "========================================" -Level INFO

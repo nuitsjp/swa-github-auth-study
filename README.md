@@ -26,8 +26,11 @@ Azure Static Web AppとGitHub Repositoryユーザーの同期サンプル
 
 ### 基本的な使い方
 
+- `config.json` に Azure Static Web App の情報を設定します。
+- `sync.dryRun` を `false` にすると変更が反映されます。
+
 ```powershell
-.\sync-swa-users.ps1 -AppName "your-app-name" -ResourceGroup "your-resource-group"
+pwsh -File .\scripts\Sync-SwaUsers.ps1
 ```
 
 GitHubリポジトリは現在のGitリポジトリの`origin`リモートから自動検出されます。
@@ -36,8 +39,10 @@ GitHubリポジトリは現在のGitリポジトリの`origin`リモートから
 
 ### ドライラン（変更を適用せずに確認）
 
+- `config.json` の `sync.dryRun` を `true` に設定してから実行します。
+
 ```powershell
-.\sync-swa-users.ps1 -AppName "your-app-name" -ResourceGroup "your-resource-group" -DryRun
+pwsh -File .\scripts\Sync-SwaUsers.ps1
 ```
 
 ## ドキュメント
