@@ -77,6 +77,37 @@ jobs:
             exit 1
           fi
 
+          replace_placeholders() {
+            local value="$1"
+            local username="$2"
+            local invitation="$3"
+
+            DISCUSSION_VALUE="$value" python - "$username" "$invitation" <<'PY'
+import os
+import sys
+
+text = os.environ.get("DISCUSSION_VALUE", "")
+username = sys.argv[1]
+invitation = sys.argv[2]
+
+replacements = {
+    "{{USERNAME}}": username,
+    "{{username}}": username,
+    "{USERNAME}": username,
+    "{username}": username,
+    "{{INVITATION_URL}}": invitation,
+    "{{invitation_url}}": invitation,
+    "{INVITATION_URL}": invitation,
+    "{invitation_url}": invitation,
+}
+
+for key, replacement in replacements.items():
+    text = text.replace(key, replacement)
+
+print(text, end="")
+PY
+          }
+
           echo "GitHub コラボレーターを取得中..."
           mapfile -t gh_users < <(
             gh api "repos/${repo}/collaborators" --paginate --jq '.[] | select(.permissions.push == true or .permissions.admin == true or .permissions.maintain == true) | .login'
@@ -329,21 +360,8 @@ jobs:
                 continue
               fi
 
-              title="$discussion_title"
-              title="${title//{username}/$user}"
-              title="${title//{USERNAME}/$user}"
-              title="${title//\{\{username\}\}/$user}"
-              title="${title//\{\{USERNAME\}\}/$user}"
-
-              body="$template_content"
-              body="${body//{{USERNAME}}/$user}"
-              body="${body//{{username}}/$user}"
-              body="${body//{username}/$user}"
-              body="${body//{USERNAME}/$user}"
-              body="${body//{{INVITATION_URL}}/$invitation_url}"
-              body="${body//{{invitation_url}}/$invitation_url}"
-              body="${body//{invitation_url}/$invitation_url}"
-              body="${body//{INVITATION_URL}/$invitation_url}"
+              title="$(replace_placeholders "$discussion_title" "$user" "$invitation_url")"
+              body="$(replace_placeholders "$template_content" "$user" "$invitation_url")"
               mutation='mutation($repositoryId:ID!, $categoryId:ID!, $title:String!, $body:String!){ createDiscussion(input:{repositoryId:$repositoryId, categoryId:$categoryId, title:$title, body:$body}) { discussion { url } }}'
 
               if discussion_json="$(gh api graphql -f query="$mutation" -F repositoryId="$repo_id" -F categoryId="$DISCUSSION_CATEGORY_ID" -F title="$title" -F body="$body")"; then
