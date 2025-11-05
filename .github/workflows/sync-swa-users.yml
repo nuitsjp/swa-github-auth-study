@@ -88,7 +88,7 @@ jobs:
             local username="$2"
             local invitation="$3"
 
-            local script=$'import os\nimport sys\n\ntext = os.environ.get(\"DISCUSSION_VALUE\", \"\")\nusername = sys.argv[1]\ninvitation = sys.argv[2]\n\nreplacements = {\n    \"{{USERNAME}}\": username,\n    \"{{username}}\": username,\n    \"{USERNAME}\": username,\n    \"{username}\": username,\n    \"{{INVITATION_URL}}\": invitation,\n    \"{{invitation_url}}\": invitation,\n    \"{INVITATION_URL}\": invitation,\n    \"{invitation_url}\": invitation,\n}\n\nfor key, replacement in replacements.items():\n    text = text.replace(key, replacement)\n\nsys.stdout.write(text)'
+            local script=$'import os\nimport re\nimport sys\n\ntext = os.environ.get(\"DISCUSSION_VALUE\", \"\")\nusername = sys.argv[1]\ninvitation = sys.argv[2]\n\npatterns = [\n    (re.compile(r\"\\{+\\s*username\\s*\\}+\", re.IGNORECASE), username),\n    (re.compile(r\"\\{+\\s*invitation_url\\s*\\}+\", re.IGNORECASE), invitation),\n]\n\nfor pattern, replacement in patterns:\n    text = pattern.sub(replacement, text)\n\nsys.stdout.write(text)'
 
             DISCUSSION_VALUE="$value" python -c "$script" "$username" "$invitation"
           }
