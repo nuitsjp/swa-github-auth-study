@@ -109,8 +109,6 @@ jobs:
 
           echo "Azure Static Web App ユーザーを取得中..."
           azure_raw="$(az staticwebapp users list --name "$STATIC_WEB_APP_NAME" --resource-group "$RESOURCE_GROUP" -o json)"
-          echo "Azure 取得レスポンス(raw):"
-          echo "$azure_raw" | jq 'map({userId, userDetails, displayName, roles, assignedRoleNames})'
 
           declare -A azure_map=()
           declare -A azure_id_map=()
